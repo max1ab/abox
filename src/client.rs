@@ -8,14 +8,16 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::board::{MAX_BODY_BYTES, NewPost, Post};
+use crate::directory::{Profile, ProfileInput};
 use crate::server::ErrorBody;
 
-pub struct BoardClient {
+pub struct ApiClient {
     http: Client,
-    endpoint: Url,
+    board_endpoint: Url,
+    profile_endpoint: Url,
 }
 
-impl BoardClient {
+impl ApiClient {
     pub fn new(server: &str) -> Result<Self, String> {
         let mut base = Url::parse(server).map_err(|e| format!("invalid --server URL: {e}"))?;
         if !matches!(base.scheme(), "http" | "https")
@@ -28,14 +30,21 @@ impl BoardClient {
         if !base.path().ends_with('/') {
             base.set_path(&format!("{}/", base.path()));
         }
-        let endpoint = base.join("v1/board/posts").map_err(|e| e.to_string())?;
+        let board_endpoint = base.join("v1/board/posts").map_err(|e| e.to_string())?;
+        let profile_endpoint = base
+            .join("v1/directory/profiles")
+            .map_err(|e| e.to_string())?;
         let http = Client::builder()
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(15))
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| e.to_string())?;
-        Ok(Self { http, endpoint })
+        Ok(Self {
+            http,
+            board_endpoint,
+            profile_endpoint,
+        })
     }
 
     pub async fn publish(
@@ -46,11 +55,11 @@ impl BoardClient {
     ) -> Result<Post, String> {
         let response = self
             .http
-            .post(self.endpoint.clone())
+            .post(self.board_endpoint.clone())
             .json(&NewPost { team, author, body })
             .send()
             .await
-            .map_err(|e| format!("board request failed: {e}"))?;
+            .map_err(|e| format!("request failed: {e}"))?;
         decode(response).await
     }
 
@@ -60,7 +69,7 @@ impl BoardClient {
         limit: u32,
         before: Option<i64>,
     ) -> Result<Vec<Post>, String> {
-        let mut endpoint = self.endpoint.clone();
+        let mut endpoint = self.board_endpoint.clone();
         {
             let mut query = endpoint.query_pairs_mut();
             query
@@ -75,7 +84,29 @@ impl BoardClient {
             .get(endpoint)
             .send()
             .await
-            .map_err(|e| format!("board request failed: {e}"))?;
+            .map_err(|e| format!("request failed: {e}"))?;
+        decode(response).await
+    }
+
+    pub async fn set_profile(&self, profile: &ProfileInput) -> Result<Profile, String> {
+        let response = self
+            .http
+            .put(self.profile_endpoint.clone())
+            .json(profile)
+            .send()
+            .await
+            .map_err(|e| format!("request failed: {e}"))?;
+        decode(response).await
+    }
+
+    pub async fn get_profile(&self, team: &str, agent: &str) -> Result<Profile, String> {
+        let response = self
+            .http
+            .get(self.profile_endpoint.clone())
+            .query(&[("team", team), ("agent", agent)])
+            .send()
+            .await
+            .map_err(|e| format!("request failed: {e}"))?;
         decode(response).await
     }
 }
@@ -88,12 +119,12 @@ async fn decode<T: DeserializeOwned>(response: reqwest::Response) -> Result<T, S
             .await
             .map(|body| body.error)
             .unwrap_or_else(|_| "unexpected server response".into());
-        return Err(format!("board returned {status}: {message}"));
+        return Err(format!("server returned {status}: {message}"));
     }
     response
         .json()
         .await
-        .map_err(|e| format!("invalid board response: {e}"))
+        .map_err(|e| format!("invalid server response: {e}"))
 }
 
 pub fn read_body(path: Option<&Path>) -> Result<String, String> {
@@ -128,17 +159,21 @@ mod tests {
 
     #[test]
     fn preserves_reverse_proxy_prefix_and_rejects_ambiguous_base_urls() {
-        let client = BoardClient::new("http://localhost/mail").unwrap();
+        let client = ApiClient::new("http://localhost/mail").unwrap();
         assert_eq!(
-            client.endpoint.as_str(),
+            client.board_endpoint.as_str(),
             "http://localhost/mail/v1/board/posts"
+        );
+        assert_eq!(
+            client.profile_endpoint.as_str(),
+            "http://localhost/mail/v1/directory/profiles"
         );
         for url in [
             "file:///tmp/board",
             "http://localhost/?team=dev",
             "http://localhost/#board",
         ] {
-            assert!(BoardClient::new(url).is_err());
+            assert!(ApiClient::new(url).is_err());
         }
     }
 

@@ -12,7 +12,7 @@ pub struct Cli {
     /// agmsg installation root (contains scripts/); defaults to ~/.agents/skills/agmsg.
     #[arg(long, global = true, env = "AGENT_MAIL_AGMSG_DIR")]
     pub agmsg_dir: Option<PathBuf>,
-    /// Shared board server; independent of agmsg's remote sync endpoint.
+    /// Shared board/profile server; independent of agmsg's remote sync endpoint.
     #[arg(
         long,
         global = true,
@@ -44,6 +44,27 @@ pub enum Command {
         #[command(subcommand)]
         command: BoardCommand,
     },
+    /// Manage role profiles; does not create mailboxes or bind agmsg sessions.
+    Directory {
+        #[command(subcommand)]
+        command: DirectoryCommand,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum DirectoryCommand {
+    /// Set both display name and description for a role (JSON output).
+    Set {
+        team: String,
+        agent: String,
+        #[arg(long)]
+        display_name: String,
+        /// Up to 4096 UTF-8 bytes; use an empty string to clear the description.
+        #[arg(long, allow_hyphen_values = true)]
+        description: String,
+    },
+    /// Get a role's profile (JSON output); missing profiles return an error.
+    Get { team: String, agent: String },
 }
 
 #[derive(Subcommand)]

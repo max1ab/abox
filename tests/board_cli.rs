@@ -45,13 +45,17 @@ impl Server {
     }
 
     fn cli(&self, args: &[&str], body: Option<&str>) -> Output {
+        self.resource_cli("board", args, body)
+    }
+
+    fn resource_cli(&self, resource: &str, args: &[&str], body: Option<&str>) -> Output {
         let mut child = Command::new(env!("CARGO_BIN_EXE_agent-mail"))
             .args([
                 "--server",
                 &self.url,
                 "--agmsg-dir",
                 "/nonexistent-agmsg-board-test",
-                "board",
+                resource,
             ])
             .args(args)
             .env("NO_PROXY", "127.0.0.1")
@@ -191,4 +195,72 @@ async fn directory_profile_api_shares_the_service_and_persists_updates() {
         .await
         .unwrap();
     assert_eq!(missing.status(), reqwest::StatusCode::NOT_FOUND);
+}
+
+#[test]
+#[ignore = "starts a loopback HTTP listener; run explicitly where local networking is permitted"]
+fn directory_cli_sets_gets_and_reports_errors_without_agmsg() {
+    let temp = tempfile::tempdir().unwrap();
+    let db = temp.path().join("mail.sqlite");
+    let mut server = Server::start(&db);
+    let team = "研发 & review";
+    let role = "reviewer-01";
+    let set = |server: &Server, description: &str| {
+        server.resource_cli(
+            "directory",
+            &[
+                "set",
+                team,
+                role,
+                "--display-name",
+                "审查员",
+                "--description",
+                description,
+            ],
+            None,
+        )
+    };
+    let description = "负责代码审查\n@codex 请主动查看，资料不产生通知。";
+    let saved = rows(set(&server, description));
+    assert_eq!(saved.len(), 1);
+    assert_eq!(saved[0]["team"], team);
+    assert_eq!(saved[0]["agent"], role);
+    assert_eq!(saved[0]["display_name"], "审查员");
+    assert_eq!(saved[0]["description"], description);
+    let get = |server: &Server, agent: &str| {
+        server.resource_cli("directory", &["get", team, agent], None)
+    };
+    assert_eq!(rows(get(&server, role)), saved);
+
+    let changed = rows(set(&server, "--literal-text\n新的职责"));
+    assert_eq!(changed[0]["description"], "--literal-text\n新的职责");
+    assert_eq!(rows(get(&server, role)), changed);
+    let invalid = set(&server, &"x".repeat(4097));
+    assert_eq!(invalid.status.code(), Some(1));
+    assert!(
+        invalid.stdout.is_empty(),
+        "failed requests must not print success JSON"
+    );
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("400 Bad Request"));
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("4096"));
+    assert_eq!(rows(get(&server, role)), changed);
+
+    let cleared = rows(set(&server, ""));
+    assert_eq!(cleared[0]["description"], "");
+    server.stop();
+    let reopened = Server::start(&db);
+    assert_eq!(rows(get(&reopened, role)), cleared);
+    let missing = get(&reopened, "missing");
+    assert_eq!(missing.status.code(), Some(1));
+    assert!(missing.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("404 Not Found"));
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("profile not found"));
+
+    let incomplete = reopened.resource_cli(
+        "directory",
+        &["set", team, role, "--display-name", "审查员"],
+        None,
+    );
+    assert_eq!(incomplete.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&incomplete.stderr).contains("--description"));
 }

@@ -1,14 +1,14 @@
 mod agmsg;
 mod board;
-mod board_client;
 mod cli;
+mod client;
 mod directory;
 mod server;
 
 use std::process::ExitCode;
 
 use clap::Parser;
-use cli::{AgmsgCommand, BoardCommand, Cli, Command};
+use cli::{AgmsgCommand, BoardCommand, Cli, Command, DirectoryCommand};
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -28,7 +28,7 @@ async fn run(cli: Cli) -> Result<ExitCode, String> {
             Ok(ExitCode::SUCCESS)
         }
         Command::Board { command } => {
-            let client = board_client::BoardClient::new(&cli.server)?;
+            let client = client::ApiClient::new(&cli.server)?;
             match command {
                 BoardCommand::Post {
                     team,
@@ -36,18 +36,41 @@ async fn run(cli: Cli) -> Result<ExitCode, String> {
                     body_file,
                     ..
                 } => {
-                    let body = board_client::read_body(body_file.as_deref())?;
+                    let body = client::read_body(body_file.as_deref())?;
                     let post = client.publish(team, author, body).await?;
-                    board_client::print_jsonl([post])?;
+                    client::print_jsonl([post])?;
                 }
                 BoardCommand::List {
                     team,
                     limit,
                     before,
                 } => {
-                    board_client::print_jsonl(client.list(&team, limit, before).await?)?;
+                    client::print_jsonl(client.list(&team, limit, before).await?)?;
                 }
             }
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Directory { command } => {
+            let client = client::ApiClient::new(&cli.server)?;
+            let profile = match command {
+                DirectoryCommand::Set {
+                    team,
+                    agent,
+                    display_name,
+                    description,
+                } => {
+                    client
+                        .set_profile(&directory::ProfileInput {
+                            team,
+                            agent,
+                            display_name,
+                            description,
+                        })
+                        .await?
+                }
+                DirectoryCommand::Get { team, agent } => client.get_profile(&team, &agent).await?,
+            };
+            client::print_jsonl([profile])?;
             Ok(ExitCode::SUCCESS)
         }
         Command::Agmsg { command } => {

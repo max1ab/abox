@@ -15,13 +15,13 @@ pub struct Profile {
     pub updated_at: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct ProfileInput {
-    team: String,
-    agent: String,
-    display_name: String,
-    description: String,
+pub struct ProfileInput {
+    pub team: String,
+    pub agent: String,
+    pub display_name: String,
+    pub description: String,
 }
 
 #[derive(Deserialize)]
