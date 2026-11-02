@@ -26,6 +26,8 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Check local agmsg and the shared service; does not verify sync or session wake.
+    Doctor,
     /// Export the bundled Agent Mail skill; does not install or configure agmsg.
     Skill {
         #[command(subcommand)]

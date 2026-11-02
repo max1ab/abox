@@ -18,6 +18,30 @@ pub struct Agmsg {
 }
 
 impl Agmsg {
+    /// Bounded, read-only probe; never starts daemon or registers a session.
+    pub async fn version(&self) -> Result<String, String> {
+        let mut command = tokio::process::Command::new("bash");
+        command.arg(self.scripts.join("agmsg")).arg("--version");
+        command.kill_on_drop(true);
+        let output = tokio::time::timeout(std::time::Duration::from_secs(5), command.output())
+            .await
+            .map_err(|_| "agmsg version check timed out after 5 seconds".to_string())?
+            .map_err(|e| format!("cannot run agmsg via bash: {e}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "agmsg version check failed ({}): {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        let version = String::from_utf8(output.stdout)
+            .map_err(|e| format!("agmsg version is not UTF-8: {e}"))?;
+        if version.trim().is_empty() {
+            return Err("agmsg version check returned empty output".into());
+        }
+        Ok(version.trim().to_owned())
+    }
+
     pub fn new(root: Option<PathBuf>) -> Result<Self, String> {
         let root = match root {
             Some(root) => root,

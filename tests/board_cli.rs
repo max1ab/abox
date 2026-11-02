@@ -341,3 +341,70 @@ fn directory_list_enriches_actual_agmsg_members_and_fails_on_service_errors() {
     );
     assert!(String::from_utf8_lossy(&failed.stderr).contains("request failed"));
 }
+
+#[test]
+#[ignore = "requires local networking, Bash, sqlite3 and AGENT_MAIL_TEST_AGMSG_DIR"]
+fn doctor_checks_both_dependencies_without_writing_or_hiding_partial_failure() {
+    let agmsg = common::fixture();
+    let temp = tempfile::tempdir().unwrap();
+    let db = temp.path().join("mail.sqlite");
+    let mut server = Server::start(&db);
+    let doctor = |agmsg: &Path| server.resource_cli_with_agmsg("doctor", &[], None, agmsg);
+    let checks = rows(doctor(agmsg.path()));
+    assert_eq!(checks.len(), 2);
+    assert_eq!(checks[0]["component"], "agmsg");
+    assert_eq!(checks[0]["ok"], true);
+    assert_eq!(checks[1]["component"], "server");
+    assert_eq!(checks[1]["ok"], true);
+    assert!(rows(server.cli(&["list", "contract"], None)).is_empty());
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    let profiles: i64 = connection
+        .query_row("SELECT COUNT(*) FROM agent_profiles", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(profiles, 0);
+
+    let missing = doctor(&temp.path().join("missing-agmsg"));
+    assert_eq!(missing.status.code(), Some(1));
+    let checks: Vec<Value> = String::from_utf8(missing.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(checks[0]["ok"], false);
+    assert_eq!(checks[1]["ok"], true);
+
+    // A listening HTTP server alone does not mean storage is usable.
+    connection.execute("DROP TABLE agent_profiles", []).unwrap();
+    let broken = doctor(agmsg.path());
+    assert_eq!(broken.status.code(), Some(1));
+    let checks: Vec<Value> = String::from_utf8(broken.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(checks[0]["ok"], true);
+    assert_eq!(checks[1]["ok"], false);
+    assert!(
+        checks[1]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("storage error")
+    );
+
+    server.stop();
+    let stopped = server.resource_cli_with_agmsg("doctor", &[], None, agmsg.path());
+    assert_eq!(stopped.status.code(), Some(1));
+    let checks: Vec<Value> = String::from_utf8(stopped.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(checks[0]["ok"], true);
+    assert_eq!(checks[1]["ok"], false);
+    assert!(
+        checks[1]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("request failed")
+    );
+}

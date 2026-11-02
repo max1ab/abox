@@ -9,12 +9,13 @@ use serde::de::DeserializeOwned;
 
 use crate::board::{MAX_BODY_BYTES, NewPost, Post};
 use crate::directory::{Profile, ProfileInput};
-use crate::server::ErrorBody;
+use crate::server::{ErrorBody, Health};
 
 pub struct ApiClient {
     http: Client,
     board_endpoint: Url,
     profile_endpoint: Url,
+    health_endpoint: Url,
 }
 
 impl ApiClient {
@@ -31,6 +32,7 @@ impl ApiClient {
             base.set_path(&format!("{}/", base.path()));
         }
         let board_endpoint = base.join("v1/board/posts").map_err(|e| e.to_string())?;
+        let health_endpoint = base.join("v1/health").map_err(|e| e.to_string())?;
         let profile_endpoint = base
             .join("v1/directory/profiles")
             .map_err(|e| e.to_string())?;
@@ -44,7 +46,22 @@ impl ApiClient {
             http,
             board_endpoint,
             profile_endpoint,
+            health_endpoint,
         })
+    }
+
+    pub async fn health(&self) -> Result<(), String> {
+        let response = self
+            .http
+            .get(self.health_endpoint.clone())
+            .send()
+            .await
+            .map_err(|e| format!("request failed: {e}"))?;
+        let health: Health = decode(response).await?;
+        if health.service != "agent-mail" || health.status != "ok" {
+            return Err("unexpected health response: expected agent-mail with status ok".into());
+        }
+        Ok(())
     }
 
     pub async fn publish(
@@ -186,6 +203,10 @@ mod tests {
         assert_eq!(
             client.profile_endpoint.as_str(),
             "http://localhost/mail/v1/directory/profiles"
+        );
+        assert_eq!(
+            client.health_endpoint.as_str(),
+            "http://localhost/mail/v1/health"
         );
         for url in [
             "file:///tmp/board",

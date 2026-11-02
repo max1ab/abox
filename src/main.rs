@@ -3,6 +3,7 @@ mod board;
 mod cli;
 mod client;
 mod directory;
+mod doctor;
 mod server;
 mod skill;
 
@@ -24,6 +25,7 @@ async fn main() -> ExitCode {
 
 async fn run(cli: Cli) -> Result<ExitCode, String> {
     match cli.command {
+        Command::Doctor => doctor::run(cli.agmsg_dir, &cli.server).await,
         Command::Skill {
             command: SkillCommand::Export { directory },
         } => {

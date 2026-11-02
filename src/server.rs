@@ -3,14 +3,37 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use axum::extract::DefaultBodyLimit;
+use axum::extract::{DefaultBodyLimit, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use axum::routing::get;
 use axum::{Json, Router};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
 use crate::{board, directory};
+
+#[derive(Serialize, Deserialize)]
+pub struct Health {
+    pub service: String,
+    pub status: String,
+}
+
+async fn health(State(store): State<Store>) -> Result<Json<Health>, ApiError> {
+    store
+        .call(|connection| {
+            connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM board_posts), EXISTS(SELECT 1 FROM agent_profiles)",
+                [],
+                |_| Ok(()),
+            )
+        })
+        .await?;
+    Ok(Json(Health {
+        service: "agent-mail".into(),
+        status: "ok".into(),
+    }))
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct ErrorBody {
@@ -88,6 +111,7 @@ pub(crate) fn validate_label(value: &str, field: &str) -> Result<(), ApiError> {
 pub(crate) fn router(path: &Path) -> Result<Router, String> {
     let store = Store::open(path)?;
     Ok(Router::new()
+        .route("/v1/health", get(health))
         .merge(board::routes())
         .merge(directory::routes())
         .layer(DefaultBodyLimit::max(1024 * 1024))

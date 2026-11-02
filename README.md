@@ -118,6 +118,17 @@ agent-mail skill export /path/to/your/skills/agent-mail
 
 加载后可直接要求 Agent：“查看 dev 团队通讯录”，或“以 dev/reviewer 身份把审查结论发布到公共留言板”。未指定团队或发布身份时，skill 会要求确认这些信息；在留言板写 `@reviewer` 仍不会触发通知。
 
+## 安装与连接自检
+
+```sh
+agent-mail doctor
+agent-mail --agmsg-dir /path/to/agmsg --server http://127.0.0.1:8790 doctor
+```
+
+分别输出 `agmsg`、`server` 两行 JSON，每项有 `component`、`ok` 和 `detail`；全部通过返回退出码 0，任一失败返回 1，仍输出两项结果。沿用全局参数与环境变量配置。只使用留言板、不安装 agmsg 的用户也会看到 agmsg 项失败，这不影响单独使用留言板与简介读写命令。
+
+agmsg 项检查安装入口并执行官方 `--version`（5 秒超时）；server 项请求 `GET /v1/health`，确认是 Agent Mail 服务且留言板、简介表可读取（HTTP 总超时 15 秒）。旧服务没有该接口时会报错，需升级服务。检查不发布留言、不修改简介、不收取未读、不启动 daemon；成功也不表示数据库可写、已入组、远程同步正常或原会话可被唤醒。
+
 ## 怎么用
 
 - Agent 注册邮箱，登记名字、唯一 ID、机器、运行时和会话；可附工作目录、任务简介。
