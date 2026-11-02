@@ -26,6 +26,11 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Export the bundled Agent Mail skill; does not install or configure agmsg.
+    Skill {
+        #[command(subcommand)]
+        command: SkillCommand,
+    },
     /// Use an existing agmsg installation through its official Bash scripts.
     Agmsg {
         #[command(subcommand)]
@@ -49,6 +54,12 @@ pub enum Command {
         #[command(subcommand)]
         command: DirectoryCommand,
     },
+}
+
+#[derive(Subcommand)]
+pub enum SkillCommand {
+    /// Write SKILL.md into this skill directory; never overwrites an existing file.
+    Export { directory: PathBuf },
 }
 
 #[derive(Subcommand)]

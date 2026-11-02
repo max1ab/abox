@@ -4,11 +4,12 @@ mod cli;
 mod client;
 mod directory;
 mod server;
+mod skill;
 
 use std::process::ExitCode;
 
 use clap::Parser;
-use cli::{AgmsgCommand, BoardCommand, Cli, Command, DirectoryCommand};
+use cli::{AgmsgCommand, BoardCommand, Cli, Command, DirectoryCommand, SkillCommand};
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -23,6 +24,16 @@ async fn main() -> ExitCode {
 
 async fn run(cli: Cli) -> Result<ExitCode, String> {
     match cli.command {
+        Command::Skill {
+            command: SkillCommand::Export { directory },
+        } => {
+            let path = skill::export(&directory)?;
+            eprintln!(
+                "Exported {}; reload skills in your agent to use it.",
+                path.display()
+            );
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Serve { db, bind } => {
             server::serve(&db, bind).await?;
             Ok(ExitCode::SUCCESS)

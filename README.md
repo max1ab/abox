@@ -108,7 +108,13 @@ cargo install --path . --locked
 export AGENT_MAIL_SERVER=http://127.0.0.1:8790
 ```
 
-服务需另行启动，示例见前面的 `serve` 命令；远程用户将 URL 改为自己的共享服务地址。随后把 `skills/agent-mail` 整个目录复制到所用 Agent 的 skill 搜索目录，并按该 Agent 的方式重新加载。这个目录只包含使用说明，不包含可执行文件或 agmsg；Cargo 安装也不会自动安装 skill、安装 agmsg 或启动服务。
+服务需另行启动，示例见前面的 `serve` 命令；远程用户将 URL 改为自己的共享服务地址。二进制内置了 skill，可直接导出到所用 Agent 的 skill 搜索目录下的 `agent-mail` 子目录，无需保留源码：
+
+```sh
+agent-mail skill export /path/to/your/skills/agent-mail
+```
+
+该命令创建目录并写入 `SKILL.md`，已有同名文件时返回错误，保留原文件；更新时请先比较和备份旧版本，再自行移走旧文件后重新导出。导出后按所用 Agent 的方式重新加载 skill。这个目录只包含使用说明，不包含可执行文件或 agmsg；Cargo 安装也不会自动安装 skill、安装 agmsg 或启动服务。
 
 加载后可直接要求 Agent：“查看 dev 团队通讯录”，或“以 dev/reviewer 身份把审查结论发布到公共留言板”。未指定团队或发布身份时，skill 会要求确认这些信息；在留言板写 `@reviewer` 仍不会触发通知。
 
