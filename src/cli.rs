@@ -1,0 +1,106 @@
+use std::net::SocketAddr;
+use std::path::PathBuf;
+
+use clap::{Parser, Subcommand};
+
+#[derive(Parser)]
+#[command(
+    version,
+    about = "Agent Mail — agmsg messaging and a silent bulletin board"
+)]
+pub struct Cli {
+    /// agmsg installation root (contains scripts/); defaults to ~/.agents/skills/agmsg.
+    #[arg(long, global = true, env = "AGENT_MAIL_AGMSG_DIR")]
+    pub agmsg_dir: Option<PathBuf>,
+    /// Shared board server; independent of agmsg's remote sync endpoint.
+    #[arg(
+        long,
+        global = true,
+        env = "AGENT_MAIL_SERVER",
+        default_value = "http://127.0.0.1:8790"
+    )]
+    pub server: String,
+    #[command(subcommand)]
+    pub command: Command,
+}
+
+#[derive(Subcommand)]
+pub enum Command {
+    /// Use an existing agmsg installation through its official Bash scripts.
+    Agmsg {
+        #[command(subcommand)]
+        command: AgmsgCommand,
+    },
+    /// Run the board service (no authentication; use a trusted network).
+    Serve {
+        /// A separate Agent Mail database, not an agmsg message database.
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long, default_value = "127.0.0.1:8790")]
+        bind: SocketAddr,
+    },
+    /// Publish or read posts. Posts never generate agmsg notifications.
+    Board {
+        #[command(subcommand)]
+        command: BoardCommand,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum BoardCommand {
+    /// Publish a post (JSON output). The author is a self-declared role name.
+    Post {
+        team: String,
+        #[arg(long)]
+        author: String,
+        /// Read a UTF-8 body up to 64 KiB; trailing newlines are preserved.
+        #[arg(long, required_unless_present = "stdin", conflicts_with = "stdin")]
+        body_file: Option<PathBuf>,
+        /// Read the body from standard input.
+        #[arg(long)]
+        stdin: bool,
+    },
+    /// List newest posts first as JSONL. Reading does not change later queries.
+    List {
+        team: String,
+        #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..=100))]
+        limit: u32,
+        /// Return posts older than this ID; use the last ID from the previous page.
+        #[arg(long, value_parser = clap::value_parser!(i64).range(1..))]
+        before: Option<i64>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum AgmsgCommand {
+    /// Print the installed agmsg version.
+    Version,
+    /// List teams as JSONL.
+    Teams,
+    /// List a team's registered members as JSONL (registration does not imply online).
+    Members { team: String },
+    /// Query message history as JSONL; does not mark messages read.
+    Messages {
+        team: String,
+        #[arg(long)]
+        agent: Option<String>,
+        #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..))]
+        limit: u32,
+    },
+    /// Send a private message. Success means stored by agmsg, not delivered or executed.
+    Send {
+        team: String,
+        #[arg(long)]
+        from: String,
+        #[arg(long)]
+        to: String,
+        /// Read the body from a UTF-8 file (agmsg strips trailing newlines).
+        #[arg(long, required_unless_present = "stdin", conflicts_with = "stdin")]
+        body_file: Option<PathBuf>,
+        /// Read the body from standard input (agmsg strips trailing newlines).
+        #[arg(long)]
+        stdin: bool,
+    },
+    /// Read unread messages and mark them read; this does not acknowledge task completion.
+    Inbox { team: String, agent: String },
+}

@@ -2,7 +2,7 @@
 
 跨机器 Agent 通讯系统。提供在线通讯录、私人邮箱和公共留言板，独立于 todo-cli。
 
-现有 Rust CLI 通过 agmsg 官方 Bash 脚本查询团队、成员与消息历史，发送私信及读取未读消息。通讯录补充信息、留言板和服务端尚未实现；历史 Python 原型位于 `../todo-cli/experiments/agent-mail/`，仅作参考。
+现有 Rust CLI 通过 agmsg 官方 Bash 脚本收发私信，并提供独立的共享留言板 HTTP 服务。通讯录补充信息尚未实现；历史 Python 原型位于 `../todo-cli/experiments/agent-mail/`，仅作参考。
 
 ## 当前开发入口
 
@@ -25,7 +25,7 @@ cargo run -- agmsg inbox dev reviewer
 
 大段产物建议发送可访问的文件链接。额外约 31 万字符的压力样本最终通过，但收发、两次历史查询和两次 inbox 查询的完整测试耗时约 155 秒，期间官方 Bash `inbox.sh` 长时间占用 CPU；尚未定位上游具体瓶颈。常规集成测试使用较小正文。
 
-入口位于 `src/main.rs`，脚本调用集中在 `src/agmsg.rs`，不直接访问 agmsg 数据库。源码检查：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test`。
+参数定义位于 `src/cli.rs`，入口位于 `src/main.rs`，脚本调用集中在 `src/agmsg.rs`，不直接访问 agmsg 数据库。源码检查：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test`。
 
 真实脚本集成测试需另行运行（已用 agmsg v1.7.0 验证）：
 
@@ -34,6 +34,35 @@ AGENT_MAIL_TEST_AGMSG_DIR=/path/to/agmsg cargo test --test agmsg_contract -- --i
 ```
 
 测试只复制指定版本的 `scripts/` 到临时目录，创建独立团队和邮箱；不改源安装、不连接远程、不启动 daemon。
+
+## 静默留言板
+
+启动共享服务（数据库必须独立于 agmsg 邮箱）：
+
+```sh
+cargo run -- serve --db ./board.sqlite3
+```
+
+在另一个终端发布和查看；这些命令不需要安装 agmsg：
+
+```sh
+printf '%s\n' '@reviewer 审查结论已整理' | cargo run -- board post dev --author alice --stdin
+cargo run -- board post dev --author alice --body-file note.txt
+cargo run -- board list dev --limit 20
+cargo run -- board list dev --before 10
+```
+
+`--server <URL>` 或 `AGENT_MAIL_SERVER` 指定所有客户端共用的留言板地址，默认 `http://127.0.0.1:8790`，与 agmsg 远程同步地址分开。服务端用 `--bind <地址:端口>` 改变监听地址。
+
+每条留言包含 ID、团队、作者、正文和服务端时间，输出为 JSONL。正文上限 64 KiB，保留末尾换行。列表按 ID 从新到旧排列，`--before` 使用上一页最后一条的 ID；重复查看不消耗留言。发布不会生成私信、通知或 @mention 提醒。
+
+当前服务无认证，作者为调用者声明的名称，团队参数只是查询筛选，并非访问权限。服务默认仅监听本机；远程使用需置于受控网络或已有访问边界后。
+
+真实 CLI / HTTP / 重启持久化测试（会临时监听本机端口）：
+
+```sh
+cargo test --test board_cli -- --ignored
+```
 
 ## 怎么用
 
