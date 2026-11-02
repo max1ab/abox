@@ -1,0 +1,397 @@
+[
+  {
+    "repo": "aannoo/hcom",
+    "stars": 614,
+    "archived": false,
+    "license": "MIT",
+    "latest_commits": [
+      {
+        "date": "2026-10-21T03:37:50Z",
+        "message": "Bump version to 0.7.31"
+      },
+      {
+        "date": "2026-10-21T03:36:42Z",
+        "message": "Update changelog and README"
+      }
+    ],
+    "oldest_of_30": "2026-10-20T04:30:57Z",
+    "releases": [
+      {
+        "tag": "v0.7.31",
+        "date": "2026-10-21T03:55:43Z"
+      },
+      {
+        "tag": "v0.7.30",
+        "date": "2026-10-15T06:00:41Z"
+      }
+    ],
+    "readme_matches": [
+      "Works with `claude` `codex` `opencode` `grok` `hermes` `pi` `omp` `agy` `copilot` `qoder` `cursor` `kimi` `kilo` `gemini`",
+      "https://github.com/user-attachments/assets/1ce23ed9-f529-4be0-8124-816aa4c2fd43",
+      "hcom claude",
+      "hcom codex",
+      "- `review what claude did and send it fixes`",
+      "- `when codex goes idle, send it the next task`",
+      "- **Message** each other in real time. Messages arrive mid-turn (after tool calls) or wake idle agents immediately.",
+      "Hooks record activity to a local SQLite database and deliver messages from it.",
+      "agent → hooks → db → hooks → other agent",
+      "Hooks activate only when an agent is launched with `hcom` in front. Normal usage is unaffected.",
+      "<summary>Any other AI tool without hooks can join by running <code>hcom start</code></summary>",
+      "<summary>Any process can wake agents with <code>hcom send</code></summary>",
+      "hcom send -b @luna -- \"wake up and do this task\"",
+      "hcom events --idle luna --wait 600 && hcom send -b @nova -- \"luna is done, review it\"",
+      "| Claude Code | automatic | `hcom claude` |",
+      "| Codex CLI | automatic | `hcom codex` |",
+      "#### Claude Code headless and subagents",
+      "hcom claude -p 'say hi in hcom'   # print mode (separate Agent SDK credits)",
+      "hcom claude --headless            # Run normal claude in background pty (works for any tool)",
+      "For subagents, run `hcom claude`, then prompt:",
+      "hcom hooks add hermes   # plugin into the active profile (HERMES_HOME picks another); a running gateway loads it",
+      "`hcom hooks remove hermes` disconnects and removes its plugin."
+    ]
+  },
+  {
+    "repo": "asheshgoplani/agent-deck",
+    "stars": 1183,
+    "archived": false,
+    "license": "MIT",
+    "latest_commits": [
+      {
+        "date": "2026-10-25T19:54:23Z",
+        "message": "fix(session): session switch on its own session hands off to a detached child (#2897) (#2925)"
+      },
+      {
+        "date": "2026-10-25T19:32:16Z",
+        "message": "fix(tmux): detect the launched tool, not the launch chain's setup (#2828)"
+      }
+    ],
+    "oldest_of_30": "2026-10-24T09:43:23Z",
+    "releases": [
+      {
+        "tag": "v1.16.34",
+        "date": "2026-10-25T17:23:19Z"
+      },
+      {
+        "tag": "v1.16.33",
+        "date": "2026-10-24T23:39:45Z"
+      }
+    ],
+    "readme_matches": [
+      "**Agent Deck is mission control for your AI coding agents.** Running Claude Code on ten projects, OpenCode on five more, another agent somewhere in the background? One terminal shows every session — running, waiting, or done — and one keystroke switches between them. Groups, search, forking, git worktrees, cost tracking, and a phone-controlled [conductor](#conductor) keep a whole fleet manageable.",
+      "https://github.com/user-attachments/assets/e4f55917-435c-45ba-92cc-89737d0d1401",
+      "`agent-deck completion <bash|zsh|fish>` prints a completion script for commands and subcommands (`agent-deck se<Tab>` → `session`, `agent-deck session st<Tab>` → `start`/`stop`), plus live resource names where it matters — `agent-deck remote update <Tab>` offers your configured remotes, `agent-deck session set-parent <Tab> <Tab>` offers session titles at both positions, and `agent-deck -p <Tab>` o",
+      "agent-deck add . -c claude        # Add current dir with Claude",
+      "agent-deck mcp attach my-proj exa # Attach MCP to session",
+      "agent-deck skill attach my-proj docs --source pool --restart # Attach skill + restart",
+      "Queueing uses native Claude/OpenCode 2 queueing where available and waits for",
+      "OpenCode 2 queueing uses its session API and requires a detected session ID;",
+      "The main-menu composer currently supports local sessions only, not remote-session rows.",
+      "| `Enter` | Attach to session |",
+      "| `o` | Send a message to the selected session (a busy Claude session queues it, no interrupt) |",
+      "| `Shift+Q` | Queue a message after the current turn |",
+      "Five minutes from zero to a Telegram bot that watches every Claude session you have running.",
+      "  state files, lifecycle, remote channel setup (Telegram/Slack/Discord/Mattermost), gotchas.",
+      "  (GitHub events, gmail, ntfy pushes, meetings) can wake the conductor up.",
+      "Attach MCP servers without touching config files. Need web search? Browser automation? Toggle them on per project or globally. Agent Deck handles the restart automatically.",
+      "Attach/detach Claude skills per project with a managed pool workflow.",
+      "- Press `s` to open Skills Manager for a Claude session",
+      "- Available list is pool-only (`$XDG_CONFIG_HOME/agent-deck/skills/pool`, default `~/.config/agent-deck/skills/pool`) to keep attach/detach deterministic",
+      "- Apply writes project state to `.agent-deck/skills.toml` and materializes into `.claude/skills`",
+      "### Per-group Claude config",
+      "Agent Deck supports per-group `CLAUDE_CONFIG_DIR` and `env_file` overrides. Useful when a single profile hosts groups that should authenticate against different Claude accounts — for example, a personal profile hosting a `conductor` group pinned to `~/.claude-team` while other groups stay on `~/.claude`."
+    ]
+  },
+  {
+    "repo": "xhluca/agent-talk",
+    "stars": 201,
+    "archived": false,
+    "license": "MIT",
+    "latest_commits": [
+      {
+        "date": "2026-09-10T04:19:48Z",
+        "message": "release: 0.2.4 — community fixes for the monitor session id and the marketplace source (#54)"
+      },
+      {
+        "date": "2026-08-24T21:59:15Z",
+        "message": "fix(relay): stop offering a localhost relay as the quick option (#51)"
+      }
+    ],
+    "oldest_of_30": "2026-07-14T17:07:16Z",
+    "releases": [
+      {
+        "tag": "v0.2.4",
+        "date": "2026-09-10T04:20:05Z"
+      },
+      {
+        "tag": "v0.2.3",
+        "date": "2026-08-24T21:59:35Z"
+      }
+    ],
+    "readme_matches": [
+      "<p align=\"center\"><code>agent-talk</code> is a plugin for coding agents (e.g., Claude Code). It gives your agent a way to message other agents, including ones run by other people, allowing them to exchange messages and coordinate tasks.</p>",
+      "- Claude Code with plugin support.",
+      "- A retalk relay URL. You can use an existing relay or create one with the",
+      "- [Claude Code](#claude-code-quickstart)",
+      "- [Codex](#codex-quickstart)",
+      "### Claude Code Quickstart",
+      "claude plugin marketplace add xhluca/agent-talk",
+      "claude plugin marketplace update agent-talk",
+      "claude plugin install agent-talk@agent-talk",
+      "claude plugin update agent-talk@agent-talk",
+      "Then start (or restart) `claude`. The same commands work in a session as",
+      "Next, ask Claude Code to get started:",
+      "> `agent-talk` sends and receives autonomously. Run Claude Code in **auto**",
+      "### Codex Quickstart",
+      "agent-talk installs under **Codex** too — the same skills, through Codex's own",
+      "codex plugin marketplace add xhluca/agent-talk",
+      "codex plugin marketplace upgrade                # re-run add + upgrade any time to update",
+      "codex plugin add agent-talk@agent-talk",
+      "Then start Codex and ask it to get going:",
+      "Codex loads the same `init` / `id` / `add` / `send` / `receive` skills and drives",
+      "Incoming messages surface on their own once the `init` skill installs the Codex",
+      "hooks: anything waiting appears when a session starts and when you submit a"
+    ]
+  },
+  {
+    "repo": "fujibee/agmsg",
+    "stars": 1571,
+    "archived": false,
+    "license": "MIT",
+    "latest_commits": [
+      {
+        "date": "2026-10-30T06:59:36Z",
+        "message": "App 0.6.0: add-on panes (#1833)"
+      },
+      {
+        "date": "2026-10-30T06:19:28Z",
+        "message": "plugin remove: name the members left joined; say why they stop answering (#1834)"
+      }
+    ],
+    "oldest_of_30": "2026-10-22T19:47:46Z",
+    "releases": [
+      {
+        "tag": "v1.7.0",
+        "date": "2026-10-27T07:40:01Z"
+      },
+      {
+        "tag": "v1.7.0-rc.1",
+        "date": "2026-10-26T07:19:42Z"
+      }
+    ],
+    "readme_matches": [
+      "You stop being the copy-paste courier between your agents. Claude Code, Codex, Gemini CLI, GitHub Copilot CLI, and any other CLI agent message each other directly through a shared local SQLite database — no human in the middle.",
+      "       alt=\"Supported agents: Claude Code, Codex, Gemini, GitHub Copilot, Antigravity, OpenCode, Hermes\">",
+      "- Not a message queue. There's no broker. The SQLite file is the floor; agents are the players.",
+      "Two Claude Code instances in `monitor` (legacy) mode, left alone in the same team, play tic-tac-toe against each other with no human in the loop — each picks up the other's move in real time:",
+      "![Two Claude Code agents autonomously playing tic-tac-toe over agmsg](docs/agmsg-demo.gif)",
+      "In real use it looks like this — Claude Code asking Codex for a code review and getting it back, all over agmsg:",
+      "![Claude Code and Codex exchanging code review messages via agmsg](docs/screenshot.png)",
+      "# 2. Restart Claude Code / Codex / Gemini CLI / Antigravity / OpenCode to pick up the new skill",
+      "#    Claude Code:  /agmsg",
+      "#    Codex:        $agmsg",
+      "That's it. The slash command prompts you for a team name and an agent name on first use, then asks you to pick a [delivery mode](#delivery-modes) (default on Claude Code and Codex: `monitor` — real-time push; Codex delivers it through a bridge). After that, you talk to your agent naturally — see [First run](#first-run) below.",
+      "Prefer to inspect the code first, track the latest `main`, or pick a custom command name? See [Install](#install) below for the `setup.sh` one-liner, `git clone`, and the Claude Code plugin marketplace paths.",
+      "To sync a team between two installs through the self-hosted reference server, follow [Remote setup](docs/remote-setup.md).",
+      "agmsg is a thin transport. Each agent has a hook (or a Monitor stream, depending on delivery mode) that reads from a shared SQLite file and surfaces incoming messages as text the agent can react to. Sending is a `send.sh` call that appends a row. agmsg itself runs with no daemon, no socket and no broker — the file is the shared floor and the agents take turns on it. The optional [agmsgd](#agmsgd-b",
+      "**Which path gets the latest?** The `git clone` and `setup.sh` (curl) paths install straight from `main`, so they're always current. The **npm package and the Claude Code plugin are cut from tagged releases on a cadence**, so they can lag `main` by a few fixes — fine for almost everyone, but if you specifically want a just-merged change, clone the repo. You can always check exactly what you're run",
+      "### Claude Code plugin marketplace",
+      "Inside Claude Code:",
+      "The plugin install path drops the skill into `~/.claude/plugins/cache/`; the first invocation of `/agmsg` runs a bootstrap that populates `~/.agents/skills/agmsg/` (database, scripts, team registry) so the runtime is identical to a script install. If your environment lacks `sqlite3` (some minimal Linux containers don't ship it by default), the bootstrap will surface a clear error message — install",
+      "- Claude Code / Copilot CLI: `/<cmd>`",
+      "- Codex / Gemini CLI / Antigravity: `$<cmd>`",
+      "After install, **restart your agent** (Claude Code / Codex / Gemini CLI / Copilot CLI / Antigravity / OpenCode) so it picks up the new skill.",
+      "- In Windows environments, Claude Code monitor delivery is verified through"
+    ]
+  },
+  {
+    "repo": "yigitkonur/gossip",
+    "stars": 2,
+    "archived": false,
+    "license": "MIT",
+    "latest_commits": [
+      {
+        "date": "2026-05-07T03:05:10Z",
+        "message": "chore: remove husky and CI/CD configs"
+      },
+      {
+        "date": "2026-04-23T00:38:48Z",
+        "message": "feat(completion-loop): autonomous Claude↔Codex review cycle via [COMPLETION] tag (#12)"
+      }
+    ],
+    "oldest_of_30": "2026-04-13T12:08:57Z",
+    "releases": [
+      {
+        "tag": "v0.1.5",
+        "date": "2026-04-21T00:53:38Z"
+      }
+    ],
+    "readme_matches": [
+      "**Claude Code ⇄ Codex, whispering on the same machine.**",
+      "Gossip is a small, single-binary bridge that lets **Claude Code** and **OpenAI Codex** collaborate on the same workstation — one as planner/reviewer, the other as implementer/executor — with messages flowing through a local daemon instead of you copy-pasting context.",
+      "│ Claude Code │ ◀────────────▶ │   Gossip   │ ◀────────────▶│ Codex TUI     │ ◀─────▶ │ codex app-   │",
+      "- [MCP tools exposed to Claude](#mcp-tools-exposed-to-claude)",
+      "1. **Claude Code** is great at reading large codebases, reasoning about designs, and catching regressions before you merge.",
+      "2. **Codex CLI** is great at turning concrete plans into working patches, running tests, and reproducing bugs.",
+      "Making the two agents cooperate requires a shared channel, a way to hand-off turns, and some mechanical plumbing (MCP on the Claude side, a JSON-RPC WebSocket on the Codex side). Gossip is that plumbing:",
+      "- An MCP server Claude Code already knows how to talk to.",
+      "- A proxy in front of `codex app-server` so a single Codex TUI can attach, survive reconnects, and replay messages.",
+      "You run `gossip claude` in Claude Code and `gossip codex` in a second terminal — and they can talk.",
+      "**2. Install Claude Code and Codex CLI.** You need both on your `PATH`. Check with:",
+      "claude --version   # requires 2.1.80 or newer",
+      "codex --version",
+      "1. Writes `.gossip/config.json` and `.gossip/collaboration.md` — the project-local configuration and the shared Claude↔Codex collaboration rules.",
+      "2. Merges a `gossip` MCP server entry into `.mcp.json` so Claude Code auto-loads the bridge whenever it opens this directory.",
+      "3. Merges Stop + SessionStart hooks into `.claude/settings.json` so the autonomous [completion loop](#the-completion-loop) runs without any extra setup.",
+      "All three merges are additive: existing MCP servers, hook entries, and settings are preserved. Re-running init is idempotent.",
+      "**4. Start Claude Code.** Either run Claude as usual and let it launch `gossip claude` via the MCP config — or start it directly:",
+      "claude  # Claude Code will spawn gossip claude in stdio mode",
+      "**5. Attach the Codex TUI.** In a second terminal, from the same project:",
+      "gossip codex",
+      "The first call starts the background daemon, waits for the proxy to be ready, then launches the Codex TUI pointed at the gossip proxy (`--remote ws://127.0.0.1:<port>`). Either terminal (`gossip claude` or `gossip codex`) can be started first — the daemon is a singleton that the second side just attaches to."
+    ]
+  },
+  {
+    "repo": "d4j3y2k/oxtail",
+    "stars": 1,
+    "archived": false,
+    "license": "MIT",
+    "latest_commits": [
+      {
+        "date": "2026-07-29T22:31:37Z",
+        "message": "Merge pull request #67 from d4j3y2k/codex/oxtail-0.34.0-cleanup"
+      },
+      {
+        "date": "2026-07-29T22:28:50Z",
+        "message": "Release oxtail 0.34.0 cleanup"
+      }
+    ],
+    "oldest_of_30": "2026-06-30T03:18:41Z",
+    "releases": [
+      {
+        "tag": "v0.10.2",
+        "date": "2026-06-01T23:33:14Z"
+      },
+      {
+        "tag": "v0.10.1",
+        "date": "2026-06-01T17:56:45Z"
+      }
+    ],
+    "readme_matches": [
+      "agent sessions — Claude Code, Codex CLI, or a mix — at it in the same project, and they",
+      "  🟢 main*       claude  active 8s  ⏳   ↔ oxtail   awaiting codex: token-refresh audit",
+      "  🟢 reviewer    claude  active 1m       ✎ edit     addressing review comments",
+      "  🟢 codex       codex   active 30s      ⚙ bash ⚑1  auditing the token refresh path",
+      "  🟡 tests       claude  idle 8m         ✉2",
+      "  ⏳ main awaiting reply from codex (2m)",
+      "  2m   main → codex ⚑   please audit the token refresh path and report findings",
+      "  20s  codex → main     on it — tracing the refresh path now",
+      "- **Works across clients.** Claude Code and Codex CLI both speak MCP, so a Claude can",
+      "  delegate to a Codex and vice-versa.",
+      "`oxtail setup` registers the oxtail MCP server with Claude Code (`~/.claude.json`) and",
+      "Codex CLI (`~/.codex/config.toml`), installs the message hook, and checks your",
+      "prerequisites (tmux, the claude/codex CLIs) — idempotent, backs up each file first,",
+      "Claude Code — add to `~/.claude.json` (global) or a project's `.mcp.json`:",
+      "Codex CLI — add to `~/.codex/config.toml`:",
+      "**2. (Claude Code) Install the hooks** so agents receive messages autonomously and",
+      "npx oxtail install-hook",
+      "This is what lets a Claude session get a peer's message *mid-turn* instead of only when",
+      "it next polls. Codex receives by reading its inbox at a turn boundary. ([Why the",
+      "If Codex Desktop has retained completed per-thread MCP processes, inspect them with:",
+      "schedule it. It considers only registry-backed oxtail processes under a Codex",
+      "queued mail, open obligations, pending asks, and pending wakes. It performs a full"
+    ]
+  },
+  {
+    "repo": "heisenbear-rebirth/codex-claude-bridge",
+    "stars": 3,
+    "archived": false,
+    "license": null,
+    "latest_commits": [
+      {
+        "date": "2026-10-08T15:15:30Z",
+        "message": "Fix cross-client recovery, quota readiness and peer delivery"
+      },
+      {
+        "date": "2026-10-02T06:10:30Z",
+        "message": "Add confirmed restart recovery and refine dashboard interactions"
+      }
+    ],
+    "oldest_of_30": "2026-09-08T01:37:43Z",
+    "releases": [],
+    "readme_matches": [
+      "# Codex Claude Bridge",
+      "**连接 Codex、Claude Code 与 OpenCode 的已有会话，让长任务在上下文压缩后继续协作。**",
+      "Codex Claude Bridge（管理页与命令名称：**Cooperation**）连接 **Codex 桌面 App**、**VS Code 中的 Claude Code** 和 **OpenCode 原生后端**。你在原生对话界面中为会话分配工作；agent 通过 MCP、CLI 或 OpenCode 插件交换任务、评审意见和结果。本地工作台集中展示多个项目的会话、消息、上下文用量与额度恢复状态。",
+      "| **协作发生在已有原生会话中** | Codex 留在桌面 App，Claude 留在 VS Code；沿用原任务 ID、已有上下文和客户端模型配置。 |",
+      "| **额度恢复后接续原任务** | Codex、Claude 的已核实限额中断会定期查询额度，恢复并核对原轮次后提交一次继续请求。 |",
+      "例如：让 Codex 实现一个功能，让 Claude 审查方案与变更；发现问题后直接发回原 Codex 会话。两端各自保留自己的任务上下文，协作可以跨越一次上下文压缩继续进行。",
+      "    C[Codex 桌面原生会话] <-->|MCP / CLI| B[Cooperation 本地服务]",
+      "    B <-->|消息与原生控制| A[Claude Code 原生会话]",
+      "| 已登录的 Codex 桌面 App | 使用已有 Codex 会话及本机发送桥。 |",
+      "| VS Code 与已登录的 Claude Code 扩展 | 使用已有 Claude 会话。 |",
+      "| Windows .NET Framework C# 编译器 | 构建 Claude 接入程序；构建脚本会检查本机是否已有。 |",
+      "git clone https://github.com/Heisenbear-Rebirth/codex-claude-bridge.git Cooperation",
+      ".\\scripts\\build-claude-wrapper.ps1",
+      "无需运行 `npm install` 或构建前端。最后一步生成 `bin/claude-wrapper.exe` 和 `bin/claude-wrapper.paths`，其中包含本机路径；**移动项目或换机器后重新构建**。",
+      "下文统一以 `C:/Tools/Cooperation` 为安装目录，请替换为你自己的完整路径。**工具安装目录**用于存放服务和数据；**工作项目目录**是 Codex、Claude 实际处理代码或文档的目录，两者可以不同。",
+      "### 2. 启动服务并连接 Codex",
+      "首次使用时，为 Codex 配置一次 [Cooperation MCP](#配置-mcp)，重新连接该 MCP。页面右上角显示 **“Codex 已连接”** 后，即可向 Codex 发消息。只使用 CLI 时，也可以让 Codex 在自己的命令工具中运行一次：",
+      "工具会在本地保存已授权的连接，并在启动和发送前检查连通性。**以后正常双击启动即可，不再要求每次都从 Codex 会话启动。** 配好 MCP 后，Codex 重新接入时会自动更新连接，运行中的管理服务会自动重连，无需重启服务。",
+      "| 关闭服务 | 双击 `关闭项目.cmd`；正常关闭本项目管理进程并保留数据，Codex 和 Claude 原生会话继续运行。 |",
+      "Codex App 需要保持可用。断开时页面会显示“Codex 待连接”；打开 Codex 并连接 Cooperation MCP 后，状态会自动更新。工具只复用本机已经取得的授权连接，投递结果不确定的消息仍需核对，不会自动重发。",
+      "### 3. 接入 Claude Code",
+      "\"claudeCode.claudeProcessWrapper\": \"C:\\\\Tools\\\\Cooperation\\\\bin\\\\claude-wrapper.exe\""
+    ]
+  },
+  {
+    "repo": "zm2231/agenthail",
+    "stars": 2,
+    "archived": false,
+    "license": "NOASSERTION",
+    "latest_commits": [
+      {
+        "date": "2026-10-29T10:19:18Z",
+        "message": "Merge pull request #492 from zm2231/fix/ios-watchdog-hang"
+      },
+      {
+        "date": "2026-10-29T09:35:46Z",
+        "message": "fix(ios): keep Jump to latest out of the session's bottom bar"
+      }
+    ],
+    "oldest_of_30": "2026-10-27T07:31:23Z",
+    "releases": [
+      {
+        "tag": "v0.2.92",
+        "date": "2026-10-29T10:42:15Z"
+      },
+      {
+        "tag": "v0.2.91",
+        "date": "2026-10-27T16:41:06Z"
+      }
+    ],
+    "readme_matches": [
+      "Agenthail connects the Claude Code, Codex, and Notion conversations you already use. It gives them one shared place to pass work, keep going, and stay reachable when you leave your desk.",
+      "Claude Code is investigating in one window. Codex is building in another. A Notion thread holds the research. Each one knows its own assignment, but none of them knows what happened next door.",
+      "On macOS, agents that Agenthail runs act with the privacy permissions of **Agenthail Daemon**, the background part of Agenthail. Desktop automation such as agent-hands needs Accessibility, Screen Recording, and Automation of Codex Computer Use. `agenthail permissions` shows each one, granted or missing, and the System Settings pane that changes it. `agenthail permissions request` has macOS ask for",
+      "To remove a package installation, run `sudo agenthail-uninstall`. Your local conversations, queue, and history are preserved unless you add `--purge-data`.",
+      "Agenthail runs on Linux (amd64 and arm64) as a headless daemon for Claude Code and Codex. It needs systemd and installs in your home directory without root:",
+      "Run `daemon install` from the shell your agents use: the service records that shell's `PATH`, `CODEX_HOME` and `CLAUDE_CONFIG_DIR`. `CODEX_HOME` must be on a filesystem that can run programs, because Codex's app-server daemon installs and runs its own binary there; `agenthail doctor` flags one that cannot. Claude Remote Control and Notion need a signed-in desktop browser and helper components that",
+      "### Claude Code",
+      "Agenthail discovers open Claude Code sessions through their local messaging sockets. Native messages require the Agenthail daemon and do not need browser cookies or Remote Control. Sessions that expose only a Remote Control bridge use that transport; enable it with `/rc` in Claude when needed. What you type in Agenthail reaches a terminal Claude as your own turn only through Remote Control; over t",
+      "A Claude session ID is the conversation ID, the name Claude gives the transcript (`projects/<project>/<session-id>.jsonl`). The process, its messaging socket and its Remote Control session are attachments that come and go; aliases, queues and routes stay with the conversation. `/branch` and `/clear` start a new conversation and therefore a new session with no alias; a branch records the session it",
+      "Agenthail reads Claude Code's config root: `CLAUDE_CONFIG_DIR` when set, otherwise `~/.claude`. To include sessions kept in other Claude config folders, list their roots in `~/.agenthail/config.json` as `{\"claudeConfigDirs\": [\"/Users/me/.claude-work\"]}`. Each session is sent to, stopped and resumed in the root it lives in. `agenthail doctor` shows every root, and a conversation found in two roots ",
+      "`agenthail roots` lists each root with the login it currently holds, the browser sign-in profile signed into that login, and the login's current plan usage from claude.ai. Sign-in and usage need a signed-in browser on that host and the Remote Control helper components; on a host without them, such as a standard Linux server install, `roots` says so and shows the login alone. A root is a config fol",
+      "If your Claude Code or Codex requests go through an account proxy ([CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)), add it with `agenthail proxies add shared http://proxy.example:8317 --key-file ~/.config/agenthail/shared-proxy.key`. The config stores where the proxy's management key is kept (a file only you can read, a keychain item or an environment variable), never the key. Roots w",
+      "To run a Claude conversation that is open in a terminal or a `claude --bg` job in Agenthail's own host instead, use `agenthail thread adopt <session>`, or **Open in Agenthail** on the session in the Mac app and in the iPhone app's session details. The conversation keeps its history, name, alias, queued messages and config folder. A busy session is never interrupted: one running a turn, waiting on ",
+      "`agenthail claude settings compact` shows when Claude compacts conversations under each root, as the root's `settings.json` says, and `agenthail claude settings compact 300000 --root claude-work` (or `--model claude-opus-5-5 auto`, `unset`, `--enabled off`, `--idle off`) changes it there, keeping every other setting. The dashboard's settings page edits the same values. These are the config roots o",
+      "When Claude refuses a turn because a usage limit was reached, the session shows it as a notice with the time the limit resets, rather than as Claude's reply. `send --reply` and `send --stream` fail with the limit and the reset time.",
+      "A session a usage limit stopped resumes on its own once the limit resets, whether the refused turn was the agent's own work, a queued message or a prompt you typed. Messages queued for it wait for the reset instead of being refused. When the reset comes, its queued messages are sent; a session with none is sent `Your usage limit has reset. Continue the work that was interrupted.`, which the sessio",
+      "`agenthail limit-resume` lists the stopped sessions and when they resume. `agenthail limit-resume cancel <target>` keeps one stopped until you resume it, and `agenthail limit-resume resume <target>` resumes it now; the dashboard and the apps offer both on the session. `agenthail limit-resume off`, or the setting in the dashboard and the Mac app, stops sending the notice; queued messages still wait",
+      "With more than one Claude root on its host, a stopped session also offers to move to the signed-in claude.ai root with the most headroom under the policy's ceilings, and says why: the dashboard, the Mac app and the iPhone app's session details show **Move to …** on the stop. Moving takes the conversation and its project's settings to that root and continues it there at once, with its queued messag",
+      "The daemon automatically registers up to 112 agents as individual Claude peers, busy agents first and then those most recently active within the last 24 hours, refreshing every 30 seconds. They appear in Claude's `ListAgents` as `agenthail/<surface>: <name>`. Claude can reply to them using native `SendMessage`; Agenthail puts those messages in its durable queue. Any other agent registers automatic",
+      "Use `--from @alias` or `--from surface:session-id` to identify the sender. Without an explicit `--from`, Agenthail resolves the sender in this order: `AGENTHAIL_SESSION_ID`, `CLAUDE_CODE_SESSION_ID`, then `CODEX_THREAD_ID`, read when the command runs. Claude Code sets `CLAUDE_CODE_SESSION_ID` in every command it runs, so a command run after `/branch` or `/resume` speaks for the conversation that i",
+      "Daemon restart, package replacement and an earlier crash do not require manual socket cleanup. Agenthail reconciles only artifacts it can prove belong to its peer workers, preserves foreign or ambiguous sockets, and resolves the target Claude process and socket again for every delivery.",
+      "agenthail send claude:<session-id> \"Here are the findings\" --from @builder --json"
+    ]
+  }
+]
