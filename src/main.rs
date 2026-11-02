@@ -18,7 +18,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Query an existing agmsg installation using its official Bash scripts.
+    /// Use an existing agmsg installation through its official Bash scripts.
     Agmsg {
         #[command(subcommand)]
         command: AgmsgCommand,
@@ -41,6 +41,22 @@ enum AgmsgCommand {
         #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..))]
         limit: u32,
     },
+    /// Send a private message. Success means stored by agmsg, not delivered or executed.
+    Send {
+        team: String,
+        #[arg(long)]
+        from: String,
+        #[arg(long)]
+        to: String,
+        /// Read the body from a UTF-8 file (agmsg strips trailing newlines).
+        #[arg(long, required_unless_present = "stdin", conflicts_with = "stdin")]
+        body_file: Option<PathBuf>,
+        /// Read the body from standard input (agmsg strips trailing newlines).
+        #[arg(long)]
+        stdin: bool,
+    },
+    /// Read unread messages and mark them read; this does not acknowledge task completion.
+    Inbox { team: String, agent: String },
 }
 
 fn main() -> ExitCode {
@@ -60,6 +76,14 @@ fn main() -> ExitCode {
                 }
                 client.run("api.sh", &args)
             }
+            AgmsgCommand::Send {
+                team,
+                from,
+                to,
+                body_file,
+                ..
+            } => client.send(&team, &from, &to, body_file.as_deref()),
+            AgmsgCommand::Inbox { team, agent } => client.run("inbox.sh", &[&team, &agent]),
         },
     });
 

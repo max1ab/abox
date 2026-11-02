@@ -1,5 +1,6 @@
 use std::env;
-use std::path::PathBuf;
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 
 /// Process boundary to agmsg. Upstream owns its scripts, configuration and storage.
@@ -33,7 +34,30 @@ impl Agmsg {
         Ok(Self { scripts })
     }
 
-    pub fn run(&self, script: &str, args: &[&str]) -> Result<ExitStatus, String> {
+    pub fn send(
+        &self,
+        team: &str,
+        from: &str,
+        to: &str,
+        body_file: Option<&Path>,
+    ) -> Result<ExitStatus, String> {
+        let (flag, source) = match body_file {
+            Some(path) => ("--body-file", path.as_os_str()),
+            None => ("--body", OsStr::new("-")),
+        };
+        self.run(
+            "send.sh",
+            &[
+                OsStr::new(team),
+                OsStr::new(from),
+                OsStr::new(to),
+                OsStr::new(flag),
+                source,
+            ],
+        )
+    }
+
+    pub fn run<S: AsRef<OsStr>>(&self, script: &str, args: &[S]) -> Result<ExitStatus, String> {
         let path = self.scripts.join(script);
         // Pass argv directly, without `sh -c` or interpolating user input into shell code.
         Command::new("bash")
