@@ -65,6 +65,8 @@ pub enum DirectoryCommand {
     },
     /// Get a role's profile (JSON output); missing profiles return an error.
     Get { team: String, agent: String },
+    /// List agmsg members with optional profile metadata as JSONL; not online status.
+    List { team: String },
 }
 
 #[derive(Subcommand)]

@@ -6,6 +6,8 @@ use std::time::Duration;
 
 use serde_json::Value;
 
+mod common;
+
 struct Server {
     child: Child,
     url: String,
@@ -13,7 +15,9 @@ struct Server {
 
 impl Server {
     fn start(db: &Path) -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_agent-mail"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_agent-mail"));
+        common::clean_environment(&mut command);
+        let mut child = command
             .args(["serve", "--bind", "127.0.0.1:0", "--db"])
             .arg(db)
             .stdout(Stdio::null())
@@ -49,14 +53,27 @@ impl Server {
     }
 
     fn resource_cli(&self, resource: &str, args: &[&str], body: Option<&str>) -> Output {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_agent-mail"))
-            .args([
-                "--server",
-                &self.url,
-                "--agmsg-dir",
-                "/nonexistent-agmsg-board-test",
-                resource,
-            ])
+        self.resource_cli_with_agmsg(
+            resource,
+            args,
+            body,
+            Path::new("/nonexistent-agmsg-board-test"),
+        )
+    }
+
+    fn resource_cli_with_agmsg(
+        &self,
+        resource: &str,
+        args: &[&str],
+        body: Option<&str>,
+        agmsg: &Path,
+    ) -> Output {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_agent-mail"));
+        common::clean_environment(&mut command);
+        let mut child = command
+            .args(["--server", &self.url, "--agmsg-dir"])
+            .arg(agmsg)
+            .arg(resource)
             .args(args)
             .env("NO_PROXY", "127.0.0.1")
             .env("no_proxy", "127.0.0.1")
@@ -263,4 +280,64 @@ fn directory_cli_sets_gets_and_reports_errors_without_agmsg() {
     );
     assert_eq!(incomplete.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&incomplete.stderr).contains("--description"));
+}
+
+#[test]
+#[ignore = "requires local networking, Bash, sqlite3 and AGENT_MAIL_TEST_AGMSG_DIR"]
+fn directory_list_enriches_actual_agmsg_members_and_fails_on_service_errors() {
+    let agmsg = common::fixture();
+    let temp = tempfile::tempdir().unwrap();
+    let mut server = Server::start(&temp.path().join("mail.sqlite"));
+    rows(server.resource_cli(
+        "directory",
+        &[
+            "set",
+            "contract",
+            "sender",
+            "--display-name",
+            "开发者",
+            "--description",
+            "负责开发",
+        ],
+        None,
+    ));
+    rows(server.resource_cli(
+        "directory",
+        &[
+            "set",
+            "contract",
+            "not-a-member",
+            "--display-name",
+            "历史资料",
+            "--description",
+            "不能冒充成员",
+        ],
+        None,
+    ));
+    let list = |server: &Server| {
+        server.resource_cli_with_agmsg("directory", &["list", "contract"], None, agmsg.path())
+    };
+    let entries = rows(list(&server));
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0]["agent"], "receiver");
+    assert!(entries[0]["display_name"].is_null());
+    assert!(entries[0]["description"].is_null());
+    assert_eq!(entries[1]["agent"], "sender");
+    assert_eq!(entries[1]["display_name"], "开发者");
+    assert_eq!(entries[1]["description"], "负责开发");
+    for entry in &entries {
+        assert_eq!(entry["team"], "contract");
+        assert_eq!(entry["types"], serde_json::json!(["codex"]));
+        assert!(entry["project"].is_string());
+        assert!(entry.get("online").is_none(), "membership is not liveness");
+    }
+    assert_eq!(rows(list(&server)), entries);
+    server.stop();
+    let failed = list(&server);
+    assert_eq!(failed.status.code(), Some(1));
+    assert!(
+        failed.stdout.is_empty(),
+        "do not emit a partial directory on HTTP failure"
+    );
+    assert!(String::from_utf8_lossy(&failed.stderr).contains("request failed"));
 }

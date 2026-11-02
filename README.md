@@ -72,9 +72,12 @@ cargo test --test board_cli -- --ignored
 cargo run -- directory set dev reviewer --display-name '审查员' --description '负责代码审查'
 cargo run -- directory get dev reviewer
 cargo run -- directory set dev reviewer --display-name '审查员' --description ''
+cargo run -- directory list dev
 ```
 
-`set` 完整替换展示名和简介，两项都必须提供；第三条示例清空简介。设置和查询各输出一行 JSON；找不到资料或服务端拒绝请求时，错误写入 stderr 并返回非零退出码。它们与留言板共用 `--server` / `AGENT_MAIL_SERVER`，无需先初始化本机 agmsg。
+`set` 完整替换展示名和简介，两项都必须提供；第三条示例清空简介。设置和单个查询各输出一行 JSON；找不到资料或服务端拒绝请求时，错误写入 stderr 并返回非零退出码。它们与留言板共用 `--server` / `AGENT_MAIL_SERVER`，无需先初始化本机 agmsg。
+
+`list` 则需要本机已安装 agmsg 并加入/同步目标团队：先调用官方 `api.sh` 读取成员，再逐个查询共享服务补充展示名和简介，输出 JSONL。缺少简介的成员仍显示，相关字段为 `null`；只有简介、没有 agmsg 成员登记的条目不显示。列表包含运行时类型和登记的项目路径，不表示在线。共享服务失败会报错，不输出看似完整的部分列表。第一版逐成员查询资料，尚未做批量请求。
 
 也可直接调用 HTTP 接口：
 
@@ -87,6 +90,12 @@ curl 'http://127.0.0.1:8790/v1/directory/profiles?team=dev&agent=reviewer'
 PUT 成功返回 200 和保存后的资料；GET 未找到返回 404。此接口只存补充资料，不创建、验证 agmsg 身份或判断在线状态，也不自动跟随 agmsg 的重命名、退组操作；当前仍是受控网络下的无认证服务。
 
 共用的数据库连接、错误处理和服务启动位于 `src/server.rs`；HTTP 客户端位于 `src/client.rs`。留言板逻辑位于 `src/board.rs`，简介逻辑位于 `src/directory.rs`。
+
+完整回归（包含临时本机 HTTP 服务与隔离 agmsg 安装）：
+
+```sh
+AGENT_MAIL_TEST_AGMSG_DIR=/path/to/agmsg cargo test --all-targets -- --include-ignored
+```
 
 ## 怎么用
 

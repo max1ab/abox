@@ -100,6 +100,25 @@ impl ApiClient {
     }
 
     pub async fn get_profile(&self, team: &str, agent: &str) -> Result<Profile, String> {
+        decode(self.profile_response(team, agent).await?).await
+    }
+
+    pub async fn find_profile(&self, team: &str, agent: &str) -> Result<Option<Profile>, String> {
+        let response = self.profile_response(team, agent).await?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            let error = response
+                .json::<ErrorBody>()
+                .await
+                .map_err(|e| format!("invalid profile error response: {e}"))?;
+            if error.error == "profile not found" {
+                return Ok(None);
+            }
+            return Err(format!("server returned 404 Not Found: {}", error.error));
+        }
+        decode(response).await.map(Some)
+    }
+
+    async fn profile_response(&self, team: &str, agent: &str) -> Result<reqwest::Response, String> {
         let response = self
             .http
             .get(self.profile_endpoint.clone())
@@ -107,7 +126,7 @@ impl ApiClient {
             .send()
             .await
             .map_err(|e| format!("request failed: {e}"))?;
-        decode(response).await
+        Ok(response)
     }
 }
 

@@ -15,6 +15,17 @@ pub struct Profile {
     pub updated_at: String,
 }
 
+/// agmsg membership enriched with optional profile metadata; not a liveness report.
+#[derive(Serialize)]
+pub struct Entry {
+    pub team: String,
+    pub agent: String,
+    pub types: Vec<String>,
+    pub project: Option<String>,
+    pub display_name: Option<String>,
+    pub description: Option<String>,
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileInput {

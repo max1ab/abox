@@ -4,22 +4,8 @@ use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
 use serde_json::Value;
-use tempfile::TempDir;
-
-fn clean_environment(command: &mut Command) {
-    for name in [
-        "AGMSG_STORAGE_PATH",
-        "AGMSG_PLUGIN_DIRS",
-        "SKILL_DIR",
-        "CODEX_THREAD_ID",
-        "CODEX_SESSION_ID",
-    ] {
-        command.env_remove(name);
-    }
-    command.env("AGMSG_RESOLVE_PROJECT", "0");
-    command.env("AGMSG_SELF_NAME", "off");
-    command.env("AGMSG_SELF_RENAME", "off");
-}
+mod common;
+use common::{clean_environment, fixture};
 
 fn cli(root: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_agent-mail"));
@@ -37,46 +23,6 @@ fn success(output: Output) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8(output.stdout).unwrap()
-}
-
-fn copy_tree(source: &Path, destination: &Path) {
-    fs::create_dir_all(destination).unwrap();
-    for entry in fs::read_dir(source).unwrap() {
-        let entry = entry.unwrap();
-        let target = destination.join(entry.file_name());
-        if entry.file_type().unwrap().is_dir() {
-            copy_tree(&entry.path(), &target);
-        } else {
-            fs::copy(entry.path(), target).unwrap();
-        }
-    }
-}
-
-// Copy only upstream code. Every test owns fresh teams, storage and runtime state;
-// the source installation and its real mailboxes are never modified.
-fn fixture() -> TempDir {
-    let source = std::env::var_os("AGENT_MAIL_TEST_AGMSG_DIR")
-        .expect("set AGENT_MAIL_TEST_AGMSG_DIR to an agmsg checkout or installation root");
-    let temp = tempfile::Builder::new()
-        .prefix("agent mail test ")
-        .tempdir()
-        .unwrap();
-    copy_tree(
-        &Path::new(&source).join("scripts"),
-        &temp.path().join("scripts"),
-    );
-    for agent in ["sender", "receiver"] {
-        let mut command = Command::new("bash");
-        clean_environment(&mut command);
-        let output = command
-            .arg(temp.path().join("scripts/join.sh"))
-            .args(["contract", agent, "codex"])
-            .arg(temp.path())
-            .output()
-            .unwrap();
-        success(output);
-    }
-    temp
 }
 
 fn history(root: &Path) -> Vec<Value> {

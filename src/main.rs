@@ -52,25 +52,45 @@ async fn run(cli: Cli) -> Result<ExitCode, String> {
         }
         Command::Directory { command } => {
             let client = client::ApiClient::new(&cli.server)?;
-            let profile = match command {
+            match command {
                 DirectoryCommand::Set {
                     team,
                     agent,
                     display_name,
                     description,
                 } => {
-                    client
+                    let profile = client
                         .set_profile(&directory::ProfileInput {
                             team,
                             agent,
                             display_name,
                             description,
                         })
-                        .await?
+                        .await?;
+                    client::print_jsonl([profile])?;
                 }
-                DirectoryCommand::Get { team, agent } => client.get_profile(&team, &agent).await?,
-            };
-            client::print_jsonl([profile])?;
+                DirectoryCommand::Get { team, agent } => {
+                    client::print_jsonl([client.get_profile(&team, &agent).await?])?;
+                }
+                DirectoryCommand::List { team } => {
+                    let members = agmsg::Agmsg::new(cli.agmsg_dir)?.members(&team)?;
+                    let mut entries = Vec::with_capacity(members.len());
+                    for member in members {
+                        let profile = client.find_profile(&team, &member.name).await?;
+                        entries.push(directory::Entry {
+                            team: team.clone(),
+                            agent: member.name,
+                            types: member.types,
+                            project: member.project,
+                            display_name: profile.as_ref().map(|p| p.display_name.clone()),
+                            description: profile.map(|p| p.description),
+                        });
+                    }
+                    // Emit only after every lookup succeeds: service errors must not look
+                    // like a complete list with missing metadata.
+                    client::print_jsonl(entries)?;
+                }
+            }
             Ok(ExitCode::SUCCESS)
         }
         Command::Agmsg { command } => {
