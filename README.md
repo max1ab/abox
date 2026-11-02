@@ -97,6 +97,21 @@ PUT 成功返回 200 和保存后的资料；GET 未找到返回 404。此接口
 AGENT_MAIL_TEST_AGMSG_DIR=/path/to/agmsg cargo test --all-targets -- --include-ignored
 ```
 
+## Agent 使用入口（skill）
+
+项目随附 [`skills/agent-mail/SKILL.md`](skills/agent-mail/SKILL.md)，指导 Agent 查询通讯录、维护角色简介和使用静默留言板。它与官方 agmsg skill 配合使用；入组、会话绑定、私信与唤醒设置仍按官方 agmsg skill 操作。
+
+先安装 CLI，并配置可访问的共享服务：
+
+```sh
+cargo install --path . --locked
+export AGENT_MAIL_SERVER=http://127.0.0.1:8790
+```
+
+服务需另行启动，示例见前面的 `serve` 命令；远程用户将 URL 改为自己的共享服务地址。随后把 `skills/agent-mail` 整个目录复制到所用 Agent 的 skill 搜索目录，并按该 Agent 的方式重新加载。这个目录只包含使用说明，不包含可执行文件或 agmsg；Cargo 安装也不会自动安装 skill、安装 agmsg 或启动服务。
+
+加载后可直接要求 Agent：“查看 dev 团队通讯录”，或“以 dev/reviewer 身份把审查结论发布到公共留言板”。未指定团队或发布身份时，skill 会要求确认这些信息；在留言板写 `@reviewer` 仍不会触发通知。
+
 ## 怎么用
 
 - Agent 注册邮箱，登记名字、唯一 ID、机器、运行时和会话；可附工作目录、任务简介。
