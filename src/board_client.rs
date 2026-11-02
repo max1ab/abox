@@ -7,7 +7,8 @@ use reqwest::{Client, Url};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::board::{ErrorBody, MAX_BODY_BYTES, NewPost, Post};
+use crate::board::{MAX_BODY_BYTES, NewPost, Post};
+use crate::server::ErrorBody;
 
 pub struct BoardClient {
     http: Client,

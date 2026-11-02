@@ -2,6 +2,8 @@ mod agmsg;
 mod board;
 mod board_client;
 mod cli;
+mod directory;
+mod server;
 
 use std::process::ExitCode;
 
@@ -22,7 +24,7 @@ async fn main() -> ExitCode {
 async fn run(cli: Cli) -> Result<ExitCode, String> {
     match cli.command {
         Command::Serve { db, bind } => {
-            board::serve(&db, bind).await?;
+            server::serve(&db, bind).await?;
             Ok(ExitCode::SUCCESS)
         }
         Command::Board { command } => {

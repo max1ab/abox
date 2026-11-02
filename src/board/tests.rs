@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 
 use super::*;
+use crate::server::router;
 
 async fn request(app: Router, method: &str, uri: &str, body: Option<Value>) -> (StatusCode, Value) {
     let response = app
@@ -58,17 +59,17 @@ async fn posts_preserve_mentions_and_remain_after_repeated_reads_and_reopen() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(first, after_restart);
 
-    // Board schema has no inbox, read cursors, notification jobs or agmsg tables.
+    // Application storage has no inbox, notification jobs or agmsg tables.
     let connection = Connection::open(&db).unwrap();
     let mut query = connection
-        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
         .unwrap();
     let tables = query
         .query_map([], |row| row.get::<_, String>(0))
         .unwrap()
         .collect::<rusqlite::Result<Vec<_>>>()
         .unwrap();
-    assert_eq!(tables, ["board_posts"]);
+    assert_eq!(tables, ["agent_profiles", "board_posts"]);
 }
 
 #[tokio::test]

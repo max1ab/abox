@@ -24,7 +24,7 @@ impl Server {
         let (sender, receiver) = mpsc::channel();
         std::thread::spawn(move || {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                if let Some(url) = line.strip_prefix("Agent Mail board listening on ") {
+                if let Some(url) = line.strip_prefix("Agent Mail listening on ") {
                     let _ = sender.send(url.to_owned());
                 }
             }
@@ -149,4 +149,46 @@ fn separate_cli_processes_share_a_silent_persistent_board_without_agmsg() {
     server.stop();
     let reopened = Server::start(&db);
     assert_eq!(rows(reopened.cli(&["list", team], None)), all);
+}
+
+#[tokio::test]
+#[ignore = "starts a loopback HTTP listener; run explicitly where local networking is permitted"]
+async fn directory_profile_api_shares_the_service_and_persists_updates() {
+    let temp = tempfile::tempdir().unwrap();
+    let db = temp.path().join("mail.sqlite");
+    let mut server = Server::start(&db);
+    let http = reqwest::Client::builder().no_proxy().build().unwrap();
+    let endpoint = format!("{}/v1/directory/profiles", server.url);
+    let mut body = serde_json::json!({
+        "team": "dev", "agent": "reviewer", "display_name": "审查员", "description": "初始简介"
+    });
+    for description in ["初始简介", "更新后的简介"] {
+        body["description"] = serde_json::json!(description);
+        let response = http.put(&endpoint).json(&body).send().await.unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        assert_eq!(
+            response.json::<Value>().await.unwrap()["description"],
+            description
+        );
+    }
+    server.stop();
+    let reopened = Server::start(&db);
+    let response = http
+        .get(format!("{}/v1/directory/profiles", reopened.url))
+        .query(&[("team", "dev"), ("agent", "reviewer")])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        response.json::<Value>().await.unwrap()["description"],
+        "更新后的简介"
+    );
+    let missing = http
+        .get(format!("{}/v1/directory/profiles", reopened.url))
+        .query(&[("team", "other"), ("agent", "reviewer")])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), reqwest::StatusCode::NOT_FOUND);
 }

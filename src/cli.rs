@@ -31,7 +31,7 @@ pub enum Command {
         #[command(subcommand)]
         command: AgmsgCommand,
     },
-    /// Run the board service (no authentication; use a trusted network).
+    /// Run the Agent Mail service (no authentication; use a trusted network).
     Serve {
         /// A separate Agent Mail database, not an agmsg message database.
         #[arg(long)]

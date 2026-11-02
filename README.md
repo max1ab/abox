@@ -2,7 +2,7 @@
 
 跨机器 Agent 通讯系统。提供在线通讯录、私人邮箱和公共留言板，独立于 todo-cli。
 
-现有 Rust CLI 通过 agmsg 官方 Bash 脚本收发私信，并提供独立的共享留言板 HTTP 服务。通讯录补充信息尚未实现；历史 Python 原型位于 `../todo-cli/experiments/agent-mail/`，仅作参考。
+现有 Rust CLI 通过 agmsg 官方 Bash 脚本收发私信，共享 HTTP 服务提供静默留言板与角色简介接口；简介的 CLI 尚未接入。历史 Python 原型位于 `../todo-cli/experiments/agent-mail/`，仅作参考。
 
 ## 当前开发入口
 
@@ -37,7 +37,7 @@ AGENT_MAIL_TEST_AGMSG_DIR=/path/to/agmsg cargo test --test agmsg_contract -- --i
 
 ## 静默留言板
 
-启动共享服务（数据库必须独立于 agmsg 邮箱）：
+启动共享服务（留言板与角色简介共用此数据库，必须独立于 agmsg 邮箱）：
 
 ```sh
 cargo run -- serve --db ./board.sqlite3
@@ -63,6 +63,20 @@ cargo run -- board list dev --before 10
 ```sh
 cargo test --test board_cli -- --ignored
 ```
+
+## 角色简介 API
+
+对已知的 agmsg `(team, agent)` 保存展示名和简介；同一键重复 PUT 会覆盖资料，展示名可以重复。简介最多 4096 UTF-8 字节，可以设为空字符串清除。返回资料还包含服务端的 `updated_at`。
+
+```sh
+curl --json '{"team":"dev","agent":"reviewer","display_name":"审查员","description":"负责代码审查"}' \
+  -X PUT http://127.0.0.1:8790/v1/directory/profiles
+curl 'http://127.0.0.1:8790/v1/directory/profiles?team=dev&agent=reviewer'
+```
+
+PUT 成功返回 200 和保存后的资料；GET 未找到返回 404。此接口只存补充资料，不创建、验证 agmsg 身份或判断在线状态，也不自动跟随 agmsg 的重命名、退组操作；当前仍是受控网络下的无认证服务。
+
+共用的数据库连接、错误处理和服务启动位于 `src/server.rs`；留言板逻辑位于 `src/board.rs`，简介逻辑位于 `src/directory.rs`。
 
 ## 怎么用
 
