@@ -29,12 +29,24 @@ async fn main() -> ExitCode {
 
 async fn run(cli: Cli) -> Result<ExitCode, String> {
     match cli.command {
-        Command::Sync {
-            command: SyncCommand::Once { team },
-        } => {
+        Command::Sync { command } => {
             let agmsg = agmsg::Agmsg::new(cli.agmsg_dir)?;
-            let outcome = sync::once(agmsg.root(), &team).await?;
-            client::print_jsonl([outcome])?;
+            match command {
+                SyncCommand::Once { team } => {
+                    client::print_jsonl([sync::once(agmsg.root(), &team).await?])?;
+                }
+                SyncCommand::Run { team, interval } => {
+                    sync::runtime::run(
+                        agmsg.root(),
+                        &team,
+                        std::time::Duration::from_secs(interval),
+                    )
+                    .await?;
+                }
+                SyncCommand::Status { team } => {
+                    client::print_jsonl([sync::runtime::status(agmsg.root(), &team)?])?;
+                }
+            }
             Ok(ExitCode::SUCCESS)
         }
         Command::Doctor => doctor::run(cli.agmsg_dir, &cli.server).await,

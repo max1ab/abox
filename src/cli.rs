@@ -75,6 +75,15 @@ pub enum Command {
 pub enum SyncCommand {
     /// Upload and download one page; stop official remote sync first.
     Once { team: String },
+    /// Keep mail synchronized; native sends notify this process immediately.
+    Run {
+        team: String,
+        /// Recovery interval for writes without an IPC hint or remote events.
+        #[arg(long, default_value_t = 60, value_parser = clap::value_parser!(u64).range(1..=3600))]
+        interval: u64,
+    },
+    /// Probe the local native engine and report its most recent sync result.
+    Status { team: String },
 }
 
 #[derive(Subcommand)]

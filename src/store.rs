@@ -34,7 +34,7 @@ fn native_path(path: &Path) -> PathBuf {
     }
 }
 
-fn team_name(team: &str) -> Result<(), String> {
+pub(crate) fn team_name(team: &str) -> Result<(), String> {
     if team.is_empty()
         || matches!(team, "." | "..")
         || team.starts_with('-')

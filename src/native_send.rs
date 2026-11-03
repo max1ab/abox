@@ -79,6 +79,10 @@ pub fn send(
         .map_err(|e| format!("cannot write message event (send rolled back): {e}"))?;
     tx.commit()
         .map_err(|e| format!("cannot commit send: {e}"))?;
+    drop(store);
+    // Notification is a latency hint. The committed outbox remains durable
+    // even when no resident process is running or the datagram is dropped.
+    crate::sync::runtime::notify(root, team);
     Ok(())
 }
 

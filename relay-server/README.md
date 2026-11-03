@@ -74,3 +74,15 @@ agent-mail sync once <team>
 `agmsgd` 的会话通知和注册/收件仍由官方提供，不要同时运行两个同步进程。
 
 原生同步的完整联测需同时设置 `TEST_DATABASE_URL`、`AGENT_MAIL_TEST_BIN`、`AGENT_MAIL_TEST_AGMSG_DIR`（官方安装根目录）。测试仅复制脚本到临时目录，不读写实际邮箱。
+
+## 常驻同步
+
+```sh
+agent-mail sync run <team>
+agent-mail sync status <team>
+```
+
+`run` 在前台运行，Ctrl+C 停止。同一团队只允许一个原生同步操作运行。
+原生发信提交后通过私有本机 IPC 立即触发上传；默认每 60 秒补查一次，覆盖脚本写入或通知遗漏。
+网络错误会退避重试，`status` 实际探测进程并显示最近成功时间、游标和错误；它不代表 agent 会话在线。
+运行目录位于 agmsg 安装下的 `run/native-sync/`，无需手动删除崩溃遗留锁。

@@ -40,6 +40,7 @@ pub struct Outcome {
     uploaded: usize,
     downloaded: usize,
     transport_cursor: String,
+    has_more: bool,
 }
 
 struct Context {
@@ -275,7 +276,14 @@ impl Context {
     }
 }
 
+pub mod runtime;
+
 pub async fn once(root: &Path, team: &str) -> Result<Outcome> {
+    let _lock = runtime::EngineLock::acquire(root, team)?;
+    cycle(root, team).await
+}
+
+async fn cycle(root: &Path, team: &str) -> Result<Outcome> {
     let mut ctx = Context::open(root, team)?;
     let caps = ctx.request(Method::GET, "v1/capabilities", None).await?;
     if !caps["accepted_envelope_versions"]
@@ -330,6 +338,7 @@ pub async fn once(root: &Path, team: &str) -> Result<Outcome> {
         uploaded,
         downloaded,
         transport_cursor: ctx.cursor()?,
+        has_more: page["has_more"] == true || uploaded == 10,
     })
 }
 

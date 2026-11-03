@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -30,11 +30,16 @@ function run(file: string, args: string[], env: NodeJS.ProcessEnv, input=""): Pr
     let app:ReturnType<typeof createRelayApp>|undefined;
     const temp=await mkdtemp(join(tmpdir(),"agent-mail-native-sync-"));
     let created=false;
+    let resident:ChildProcess|undefined;
     try {
       await admin.query(`CREATE SCHEMA ${schema}`);created=true;
       pool=new Pool({connectionString:databaseUrl,options:`-c search_path=${schema}`});
       await migrate(pool);await migrateCollaboration(pool);
       app=createRelayApp(pool,{databaseUrl,host:"127.0.0.1",port:8787,logLevel:"silent",retentionMaxLiveMessages:null});
+      let refuseUploads=false;
+      app.addHook("onRequest",async(request,reply)=>{
+        if(refuseUploads && request.method==="POST" && request.url==="/v1/messages") return reply.code(503).send({error:"test transient failure"});
+      });
       const address=await app.listen({host:"127.0.0.1",port:0});
       const a=join(temp,"a"),b=join(temp,"b");
       await mkdir(a);
@@ -80,7 +85,44 @@ function run(file: string, args: string[], env: NodeJS.ProcessEnv, input=""): Pr
       expect(history[0].body).toBe(body);
       expect(await invoke(b,["agmsg","inbox","contract","receiver"])).not.toContain("1 new message");
       expect((await pool.query("SELECT count(*) FROM messages")).rows[0].count).toBe("1");
+      // A 60-second fallback must not delay a native send: its IPC hint should
+      // trigger upload while the process remains otherwise idle.
+      resident=spawn(cli,["--agmsg-dir",a,"sync","run","contract","--interval","60"],{env,stdio:"ignore"});
+      const waitFor=async(check:()=>Promise<boolean>)=>{
+        const deadline=Date.now()+8000;
+        do {if(await check()) return;await new Promise(resolve=>setTimeout(resolve,50));} while(Date.now()<deadline);
+        throw new Error("condition did not become true before timeout");
+      };
+      await waitFor(async()=>JSON.parse(await invoke(a,["sync","status","contract"])).running);
+      await expect(invoke(a,["sync","once","contract"])).rejects.toThrow("already running");
+      await invoke(a,["agmsg","send","contract","--from","sender","--to","receiver","--stdin"],"IPC wake test");
+      await waitFor(async()=>(await pool!.query("SELECT count(*) FROM messages")).rows[0].count==="2");
+      expect(JSON.parse(await invoke(a,["sync","status","contract"])).running).toBe(true);
+      refuseUploads=true;
+      await invoke(a,["agmsg","send","contract","--from","sender","--to","receiver","--stdin"],"retry keeps the outbox");
+      await waitFor(async()=>JSON.parse(await invoke(a,["sync","status","contract"])).phase==="retrying");
+      expect((await pool.query("SELECT count(*) FROM messages")).rows[0].count).toBe("2");
+      refuseUploads=false;
+      await waitFor(async()=>(await pool!.query("SELECT count(*) FROM messages")).rows[0].count==="3");
+      // Killing the process must release the OS lock even without cleanup.
+      resident.kill("SIGKILL");
+      await new Promise<void>(resolve=>resident!.once("close",()=>resolve()));
+      resident=undefined;
+      expect(JSON.parse(await invoke(a,["sync","status","contract"])).running).toBe(false);
+      expect(JSON.parse(await invoke(a,["sync","once","contract"])).uploaded).toBe(0);
+      resident=spawn(cli,["--agmsg-dir",a,"sync","run","contract","--interval","1"],{env,stdio:"ignore"});
+      await waitFor(async()=>JSON.parse(await invoke(a,["sync","status","contract"])).running);
+      // The upstream shell has no native IPC hook. Recovery still finds its write.
+      await run("bash",[join(a,"scripts/send.sh"),"contract","sender","receiver","message without IPC"],env);
+      await waitFor(async()=>(await pool!.query("SELECT count(*) FROM messages")).rows[0].count==="4");
+      resident.kill("SIGTERM");
+      const exit=await new Promise<number|null>(resolve=>resident!.once("close",code=>resolve(code)));
+      expect(exit).toBe(0);resident=undefined;
+      expect(JSON.parse(await invoke(a,["sync","status","contract"])).running).toBe(false);
+
+
     } finally {
+      if(resident && resident.exitCode===null && resident.signalCode===null) {resident.kill("SIGKILL");await new Promise<void>(resolve=>resident!.once("close",()=>resolve()));}
       await app?.close();await pool?.end();
       if(created) await admin.query(`DROP SCHEMA ${schema} CASCADE`);
       await admin.end();await rm(temp,{recursive:true,force:true});
