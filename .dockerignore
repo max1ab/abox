@@ -1,0 +1,12 @@
+.git
+.codex
+.agents
+target
+node_modules
+**/node_modules
+**/dist
+experiments
+research
+.env
+**/.env
+*.sqlite3*

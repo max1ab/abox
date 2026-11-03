@@ -8,3 +8,5 @@
 /vendor/agmsg/server/dist/
 /relay-server/.env
 /.codex/hooks.json
+/deploy/.env
+/dist/

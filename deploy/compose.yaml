@@ -1,0 +1,37 @@
+name: agent-mail
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: agmsg
+      POSTGRES_USER: agmsg
+      POSTGRES_PASSWORD: ${AGMSG_DB_PASSWORD:?Set AGMSG_DB_PASSWORD in deploy/.env}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agmsg -d agmsg"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    volumes:
+      - private-mail-data:/var/lib/postgresql/data
+  private-mail:
+    image: agent-mail-relay:local
+    build:
+      context: ..
+      dockerfile: deploy/relay.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8787
+      DATABASE_URL: postgresql://agmsg@postgres:5432/agmsg
+      PGPASSWORD: ${AGMSG_DB_PASSWORD:?Set AGMSG_DB_PASSWORD in deploy/.env}
+    ports:
+      # The upstream protocol and our board have no authentication.
+      # Containers listen on all interfaces; host access stays loopback-only.
+      - "127.0.0.1:8787:8787"
+volumes:
+  # Preserve the original deployment's volume and server identity on upgrade.
+  private-mail-data:
