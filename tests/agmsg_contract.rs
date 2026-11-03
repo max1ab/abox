@@ -180,3 +180,183 @@ fn unregistered_recipient_preserves_upstream_exit_and_stderr() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("not registered"));
     assert!(history(root).is_empty());
 }
+
+fn native_send(root: &Path, file: &Path) -> Command {
+    let mut cmd = cli(root);
+    cmd.env("AGENT_MAIL_BASH", root.join("bash-must-not-run"));
+    cmd.args([
+        "send",
+        "contract",
+        "--from",
+        "sender",
+        "--to",
+        "receiver",
+        "--body-file",
+    ]);
+    cmd.arg(file);
+    cmd
+}
+
+#[test]
+#[ignore = "requires Bash, sqlite3 and AGENT_MAIL_TEST_AGMSG_DIR for isolated official fixture setup/readback"]
+fn native_send_uses_no_shell_and_rolls_back_both_rows_on_failure() {
+    let temp = fixture();
+    let root = temp.path();
+    let file = root.join("body.txt");
+    fs::write(&file, "native rollback test").unwrap();
+    let db = rusqlite::Connection::open(root.join("db/messages.db")).unwrap();
+    db.execute_batch("CREATE TRIGGER reject_event BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT, 'injected failure'); END;").unwrap();
+    let out = native_send(root, &file).output().unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("rolled back"));
+    for table in ["messages", "events"] {
+        let count: i64 = db
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+    db.execute_batch("DROP TRIGGER reject_event;").unwrap();
+    success(native_send(root, &file).output().unwrap());
+    assert_eq!(history(root).len(), 1);
+    let id: String = db
+        .query_row("SELECT id FROM events WHERE type='message_sent'", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(uuid::Uuid::parse_str(&id).unwrap().get_version_num(), 7);
+    let inbox = success(
+        cli(root)
+            .args(["inbox", "contract", "receiver"])
+            .output()
+            .unwrap(),
+    );
+    assert!(inbox.contains("1 new message(s):"));
+}
+
+#[test]
+#[ignore = "requires Bash, sqlite3 and AGENT_MAIL_TEST_AGMSG_DIR for isolated official fixture setup/readback"]
+fn native_send_resolves_per_team_store_and_serializes_writers() {
+    let temp = fixture();
+    let root = temp.path();
+    let cfg_path = root.join("teams/contract/config.json");
+    let mut cfg: Value = serde_json::from_slice(&fs::read(&cfg_path).unwrap()).unwrap();
+    cfg["drivers"] = serde_json::json!({"partition":"per-team"});
+    fs::write(cfg_path, serde_json::to_vec(&cfg).unwrap()).unwrap();
+    let dest = root.join("db/teams/contract");
+    fs::create_dir_all(&dest).unwrap();
+    // SQLite backup includes the initialized schema without depending on WAL checkpoint timing.
+    let db = rusqlite::Connection::open(root.join("db/messages.db")).unwrap();
+    db.execute(
+        "VACUUM INTO ?1",
+        [dest.join("messages.db").to_str().unwrap()],
+    )
+    .unwrap();
+    let copied = rusqlite::Connection::open(dest.join("messages.db")).unwrap();
+    copied.pragma_update(None, "journal_mode", "WAL").unwrap();
+    drop(copied);
+    let file = root.join("body.txt");
+    fs::write(&file, "parallel native send").unwrap();
+    let children: Vec<_> = (0..8)
+        .map(|_| {
+            native_send(root, &file)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap()
+        })
+        .collect();
+    for child in children {
+        success(child.wait_with_output().unwrap());
+    }
+    assert_eq!(history(root).len(), 8);
+    let count: i64 = db
+        .query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(
+        count, 0,
+        "per-team sends must not leak into the shared store"
+    );
+}
+
+#[test]
+#[ignore = "requires Bash, sqlite3 and AGENT_MAIL_TEST_AGMSG_DIR for isolated official fixture setup/readback"]
+fn native_send_refuses_unknown_storage_versions_and_path_traversal() {
+    let temp = fixture();
+    let root = temp.path();
+    let file = root.join("body.txt");
+    fs::write(&file, "must not be written").unwrap();
+    let out = native_send(root, &file)
+        .env("AGMSG_STORAGE_DRIVER", "jsonl")
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("does not support storage"));
+    fs::write(root.join("VERSION"), "v99.0.0").unwrap();
+    let out = native_send(root, &file).output().unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("v1.7.0 only"));
+    fs::write(root.join("VERSION"), "v1.7.0").unwrap();
+    let out = cli(root)
+        .args([
+            "send",
+            "../escape",
+            "--from",
+            "sender",
+            "--to",
+            "receiver",
+            "--body-file",
+        ])
+        .arg(file)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("invalid team name"));
+    assert!(history(root).is_empty());
+}
+
+#[test]
+#[ignore = "requires Bash, sqlite3, jq, Node and AGENT_MAIL_TEST_AGMSG_DIR; tests official sync without networking"]
+fn official_sync_prepares_native_message_once_and_preserves_body() {
+    let temp = fixture();
+    let root = temp.path();
+    let body = "中文 remote body with 'quotes' and \\backslash\nsecond line\r\n";
+    let file = root.join("body.txt");
+    fs::write(&file, body).unwrap();
+    success(native_send(root, &file).output().unwrap());
+    let prepare = || {
+        let mut cmd = Command::new("bash");
+        clean_environment(&mut cmd);
+        success(cmd.arg("-c").arg(r#"
+set -euo pipefail
+export SKILL_DIR="$1"
+source "$1/scripts/lib/storage.sh"
+agmsg_storage_load
+printf '%s\n' '{"type":"sync_prepare","envelope_v":1,"cipher":"none","key_id":null,"max_blob_bytes":1048576,"allow_new":true}' | storage_sync_prepare_push contract 018f3f7e-0000-7000-8000-000000000000 018f3f7e-0000-7000-8000-000000000001 1 100
+"#).arg("sync-fixture").arg(root).output().unwrap())
+    };
+    let first = prepare();
+    assert_eq!(first, prepare(), "retry must reuse the same wire envelope");
+    let candidates: Vec<Value> = first
+        .lines()
+        .map(|l| serde_json::from_str::<Value>(l).unwrap())
+        .filter(|v| v["type"] == "sync_push_candidate")
+        .collect();
+    assert_eq!(
+        candidates.len(),
+        1,
+        "legacy/event mirror must produce one upload"
+    );
+    let blob = candidates[0]["envelope"]["blob"].as_str().unwrap();
+    let output = Command::new("node")
+        .args([
+            "-e",
+            "process.stdout.write(Buffer.from(process.argv[1], 'base64').toString('utf8'))",
+            blob,
+        ])
+        .output()
+        .unwrap();
+    let projection: Value = serde_json::from_str(&success(output)).unwrap();
+    assert_eq!(projection["body"], body.trim_end_matches('\n'));
+    assert_eq!(projection["from_agent"], "sender");
+    assert_eq!(projection["to_agent"], "receiver");
+}

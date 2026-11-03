@@ -33,7 +33,7 @@ pub enum Command {
         #[command(subcommand)]
         command: SkillCommand,
     },
-    /// Use an existing agmsg installation through its official Bash scripts.
+    /// Use an existing agmsg installation; native send, official scripts for reads.
     Agmsg {
         #[command(subcommand)]
         command: AgmsgCommand,
@@ -123,7 +123,7 @@ pub enum AgmsgCommand {
         #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..))]
         limit: u32,
     },
-    /// Send a private message. Success means stored by agmsg, not delivered or executed.
+    /// Write a private message natively to an initialized agmsg v1.7.0 SQLite store.
     Send {
         team: String,
         #[arg(long)]

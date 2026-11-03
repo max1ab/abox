@@ -4,6 +4,7 @@ mod cli;
 mod client;
 mod directory;
 mod doctor;
+mod native_send;
 mod server;
 mod skill;
 
@@ -128,7 +129,10 @@ async fn run(cli: Cli) -> Result<ExitCode, String> {
                     to,
                     body_file,
                     ..
-                } => client.send(&team, &from, &to, body_file.as_deref()),
+                } => {
+                    client.send(&team, &from, &to, body_file.as_deref())?;
+                    return Ok(ExitCode::SUCCESS);
+                }
                 AgmsgCommand::Inbox { team, agent } => client.run("inbox.sh", &[&team, &agent]),
             }?;
             Ok(ExitCode::from(

@@ -7,6 +7,9 @@ use tempfile::TempDir;
 pub fn clean_environment(command: &mut Command) {
     for name in [
         "AGMSG_STORAGE_PATH",
+        "AGMSG_STORAGE_DRIVER",
+        "AGMSG_CONFIG",
+        "AGENT_MAIL_BASH",
         "AGMSG_PLUGIN_DIRS",
         "SKILL_DIR",
         "CODEX_THREAD_ID",
@@ -44,6 +47,11 @@ pub fn fixture() -> TempDir {
         &Path::new(&source).join("scripts"),
         &temp.path().join("scripts"),
     );
+    fs::copy(
+        Path::new(&source).join("VERSION"),
+        temp.path().join("VERSION"),
+    )
+    .unwrap();
     for agent in ["sender", "receiver"] {
         let mut command = Command::new("bash");
         clean_environment(&mut command);
@@ -59,5 +67,19 @@ pub fn fixture() -> TempDir {
             String::from_utf8_lossy(&output.stderr)
         );
     }
+    let mut command = Command::new("bash");
+    clean_environment(&mut command);
+    let output = command
+        .arg("-c")
+        .arg("source \"$1/scripts/lib/storage.sh\"; agmsg_storage_load; storage_init contract")
+        .arg("fixture-init")
+        .arg(temp.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "storage init failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     temp
 }
