@@ -26,6 +26,11 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Native remote synchronization over an existing agmsg binding.
+    Sync {
+        #[command(subcommand)]
+        command: SyncCommand,
+    },
     /// Export the stopped legacy board/profile SQLite database for Node import.
     ExportLegacy {
         #[arg(long)]
@@ -64,6 +69,12 @@ pub enum Command {
         #[command(subcommand)]
         command: DirectoryCommand,
     },
+}
+
+#[derive(Subcommand)]
+pub enum SyncCommand {
+    /// Upload and download one page; stop official remote sync first.
+    Once { team: String },
 }
 
 #[derive(Subcommand)]

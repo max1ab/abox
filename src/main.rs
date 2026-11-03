@@ -8,11 +8,13 @@ mod legacy_export;
 mod native_send;
 mod server;
 mod skill;
+mod store;
+mod sync;
 
 use std::process::ExitCode;
 
 use clap::Parser;
-use cli::{AgmsgCommand, BoardCommand, Cli, Command, DirectoryCommand, SkillCommand};
+use cli::{AgmsgCommand, BoardCommand, Cli, Command, DirectoryCommand, SkillCommand, SyncCommand};
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -27,6 +29,14 @@ async fn main() -> ExitCode {
 
 async fn run(cli: Cli) -> Result<ExitCode, String> {
     match cli.command {
+        Command::Sync {
+            command: SyncCommand::Once { team },
+        } => {
+            let agmsg = agmsg::Agmsg::new(cli.agmsg_dir)?;
+            let outcome = sync::once(agmsg.root(), &team).await?;
+            client::print_jsonl([outcome])?;
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Doctor => doctor::run(cli.agmsg_dir, &cli.server).await,
         Command::ExportLegacy { db, output } => {
             legacy_export::export(&db, &output)?;

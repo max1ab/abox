@@ -40,6 +40,9 @@ fn windows_shell_path(path: &str) -> String {
 }
 
 impl Agmsg {
+    pub(crate) fn root(&self) -> &Path {
+        &self.root
+    }
     /// Bounded, read-only probe; never starts daemon or registers a session.
     pub async fn version(&self) -> Result<String, String> {
         let mut command = tokio::process::Command::new(&self.bash);
