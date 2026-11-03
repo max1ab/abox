@@ -7,3 +7,4 @@
 /vendor/agmsg/server/node_modules/
 /vendor/agmsg/server/dist/
 /relay-server/.env
+/.codex/hooks.json
