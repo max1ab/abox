@@ -2,7 +2,7 @@ use super::*;
 use rusqlite::Connection;
 use tempfile::TempDir;
 
-fn fixture() -> TempDir {
+pub(super) fn fixture() -> TempDir {
     let temp = tempfile::tempdir().unwrap();
     fs::create_dir_all(temp.path().join("teams/dev")).unwrap();
     fs::create_dir_all(temp.path().join("db")).unwrap();
@@ -16,17 +16,18 @@ fn fixture() -> TempDir {
     db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA user_version=1;
         CREATE TABLE storage_metadata(key TEXT PRIMARY KEY,value TEXT);
         INSERT INTO storage_metadata VALUES ('read_cursor_v1','1');
-        CREATE TABLE messages(id INTEGER PRIMARY KEY AUTOINCREMENT,team TEXT,from_agent TEXT,to_agent TEXT,body TEXT,created_at TEXT);
-        CREATE TABLE events(seq INTEGER PRIMARY KEY AUTOINCREMENT,type TEXT,id TEXT,team TEXT,from_agent TEXT,to_agent TEXT,body TEXT,at TEXT,legacy_id INTEGER);").unwrap();
+        CREATE TABLE messages(id INTEGER PRIMARY KEY AUTOINCREMENT,team TEXT,from_agent TEXT,to_agent TEXT,body TEXT,created_at TEXT,read_at TEXT);
+        CREATE TABLE events(seq INTEGER PRIMARY KEY AUTOINCREMENT,type TEXT,id TEXT,team TEXT,from_agent TEXT,to_agent TEXT,body TEXT,at TEXT,legacy_id INTEGER,agent TEXT,msg_id TEXT);
+        CREATE TABLE read_cursors(team TEXT,agent TEXT,local_position INTEGER,PRIMARY KEY(team,agent));").unwrap();
     temp
 }
 fn seed(ctx: &Context) {
     ctx.store.db.execute("INSERT INTO messages(team,from_agent,to_agent,body,created_at) VALUES ('dev','sender','receiver','中文 @receiver','2026-11-03T00:00:00Z')",[]).unwrap();
 }
-fn page(candidate: &Candidate, seq: &str) -> Value {
+pub(super) fn page(candidate: &Candidate, seq: &str) -> Value {
     json!({"messages":[{"id":candidate.id,"envelope":candidate.envelope,"server_seq":seq}],"next_after":seq,"has_more":false})
 }
-fn incoming() -> Candidate {
+pub(super) fn incoming() -> Candidate {
     Candidate {
         id: uuid::Uuid::new_v4().to_string(),
         envelope: Envelope {

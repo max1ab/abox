@@ -280,6 +280,7 @@ impl Context {
 }
 
 mod events;
+mod read_state;
 mod roster;
 pub mod runtime;
 
@@ -354,6 +355,7 @@ async fn cycle(root: &Path, team: &str) -> Result<Outcome> {
         )
         .await?;
     let downloaded = ctx.apply(&expected, &after, &page)?;
+    ctx.read_state().await?;
     Ok(Outcome {
         uploaded,
         roster_uploaded,

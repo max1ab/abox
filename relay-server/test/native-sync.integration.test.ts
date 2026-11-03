@@ -40,7 +40,9 @@ function run(file: string, args: string[], env: NodeJS.ProcessEnv, input=""): Pr
       app=createRelayApp(pool,{databaseUrl,host:"127.0.0.1",port:8787,logLevel:"silent",retentionMaxLiveMessages:null});
       let refuseUploads=false;
       let refuseEvents=false;
+      let refuseProfiles=false;
       app.addHook("onRequest",async(request,reply)=>{
+        if(refuseProfiles && request.url.startsWith("/v1/directory/profiles")) return reply.code(503).send({error:"test profile outage"});
         if(refuseEvents && request.url==="/v1/agent-mail/events") return reply.code(503).send({error:"test disconnected stream"});
         if(refuseUploads && request.method==="POST" && request.url==="/v1/messages") return reply.code(503).send({error:"test transient failure"});
       });
@@ -64,7 +66,22 @@ function run(file: string, args: string[], env: NodeJS.ProcessEnv, input=""): Pr
       for(const root of [a,b]) await writeFile(join(root,"teams/contract/config.json"),JSON.stringify(config));
       const cli=resolve(process.env.AGENT_MAIL_TEST_BIN!);
       const privateMessages = "WHERE NOT (convert_from(decode(blob,'base64'),'UTF8')::jsonb ? 'kind')";
-      const invoke=(root:string,args:string[],input="")=>run(cli,["--agmsg-dir",root,...args],env,input);
+      const invoke=(root:string,args:string[],input="")=>run(cli,["--server",address,"--agmsg-dir",root,...args],env,input);
+      const boardBody="结论 @receiver\nquotes: ' \"\n";
+      const post=JSON.parse(await invoke(a,["board","post","contract","--author","sender","--stdin"],boardBody));
+      expect(post.body).toBe(boardBody);
+      expect(JSON.parse(await invoke(join(temp,"no-agmsg"),["board","list","contract"]))).toEqual(post);
+      expect(JSON.parse(await invoke(a,["board","list","contract"]))).toEqual(post);
+      await invoke(a,["directory","set","contract","sender","--display-name","Sender","--description","角色简介"]);
+      expect(JSON.parse(await invoke(a,["directory","get","contract","sender"])).description).toBe("角色简介");
+      const directory=(await invoke(a,["directory","list","contract"])).trim().split("\n").map(line=>JSON.parse(line));
+      expect(directory.find(row=>row.agent==="sender").display_name).toBe("Sender");
+      expect(directory.find(row=>row.agent==="receiver").display_name).toBe(null);
+      refuseProfiles=true;
+      await expect(invoke(a,["directory","list","contract"])).rejects.toThrow("503");
+      refuseProfiles=false;
+      const checks=(await invoke(a,["doctor"])).trim().split("\n").map(line=>JSON.parse(line));
+      expect(checks).toHaveLength(2);expect(checks.every(check=>check.ok)).toBe(true);
       const body="中文 private mail\nquotes: ' \" @receiver";
       await invoke(a,["agmsg","send","contract","--from","sender","--to","receiver","--stdin"],body);
       // Reserve with the upstream driver before switching engines.
@@ -89,6 +106,12 @@ function run(file: string, args: string[], env: NodeJS.ProcessEnv, input=""): Pr
       expect(history).toHaveLength(1);
       expect(history[0].body).toBe(body);
       expect(await invoke(b,["agmsg","inbox","contract","receiver"])).not.toContain("1 new message");
+      await invoke(b,["sync","once","contract"]);
+      await invoke(a,["sync","once","contract"]);
+      // The same identity opened on another machine must see the read state,
+      // rather than deliver the old task a second time.
+      expect(await invoke(a,["agmsg","inbox","contract","receiver"])).not.toContain("1 new message");
+
       expect((await pool.query(`SELECT count(*) FROM messages ${privateMessages}`)).rows[0].count).toBe("1");
       const baselineCursor=(await pool.query("SELECT current_seq::text FROM teams WHERE team_id=$1",[team])).rows[0].current_seq;
       // A 60-second fallback must not delay a native send: its IPC hint should
@@ -132,12 +155,17 @@ function run(file: string, args: string[], env: NodeJS.ProcessEnv, input=""): Pr
       expect((await pool.query(`SELECT count(*) FROM messages ${privateMessages}`)).rows[0].count).toBe("3");
       refuseUploads=false;
       await waitFor(async()=>(await pool!.query(`SELECT count(*) FROM messages ${privateMessages}`)).rows[0].count==="4");
+      const beforeKill=(await pool.query(`SELECT id::text FROM messages ${privateMessages} ORDER BY id`)).rows;
       // Killing the process must release the OS lock even without cleanup.
       resident.kill("SIGKILL");
       await new Promise<void>(resolve=>resident!.once("close",()=>resolve()));
       resident=undefined;
       expect(JSON.parse(await invoke(a,["sync","status","contract"])).running).toBe(false);
-      expect(JSON.parse(await invoke(a,["sync","once","contract"])).uploaded).toBe(0);
+      const recovered=JSON.parse(await invoke(a,["sync","once","contract"]));
+      // SIGKILL can land after the remote commit but before local ACK storage.
+      // Re-uploading that reservation is allowed; creating a new server row is not.
+      expect(recovered.uploaded).toBeLessThanOrEqual(1);
+      expect((await pool.query(`SELECT id::text FROM messages ${privateMessages} ORDER BY id`)).rows).toEqual(beforeKill);
       resident=spawn(cli,["--agmsg-dir",a,"sync","run","contract","--interval","1"],{env,stdio:"ignore"});
       await waitFor(async()=>JSON.parse(await invoke(a,["sync","status","contract"])).running);
       // The upstream shell has no native IPC hook. Recovery still finds its write.

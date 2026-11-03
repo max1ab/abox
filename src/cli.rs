@@ -1,4 +1,3 @@
-use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
@@ -50,14 +49,6 @@ pub enum Command {
     Agmsg {
         #[command(subcommand)]
         command: AgmsgCommand,
-    },
-    /// Run the Agent Mail service (no authentication; use a trusted network).
-    Serve {
-        /// A separate Agent Mail database, not an agmsg message database.
-        #[arg(long)]
-        db: PathBuf,
-        #[arg(long, default_value = "127.0.0.1:8790")]
-        bind: SocketAddr,
     },
     /// Publish or read posts. Posts never generate agmsg notifications.
     Board {

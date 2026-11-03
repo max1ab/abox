@@ -6,7 +6,6 @@ mod directory;
 mod doctor;
 mod legacy_export;
 mod native_send;
-mod server;
 mod skill;
 mod store;
 mod sync;
@@ -62,10 +61,6 @@ async fn run(cli: Cli) -> Result<ExitCode, String> {
                 "Exported {}; reload skills in your agent to use it.",
                 path.display()
             );
-            Ok(ExitCode::SUCCESS)
-        }
-        Command::Serve { db, bind } => {
-            server::serve(&db, bind).await?;
             Ok(ExitCode::SUCCESS)
         }
         Command::Board { command } => {
@@ -160,7 +155,13 @@ async fn run(cli: Cli) -> Result<ExitCode, String> {
                     client.send(&team, &from, &to, body_file.as_deref())?;
                     return Ok(ExitCode::SUCCESS);
                 }
-                AgmsgCommand::Inbox { team, agent } => client.run("inbox.sh", &[&team, &agent]),
+                AgmsgCommand::Inbox { team, agent } => {
+                    let status = client.run("inbox.sh", &[&team, &agent])?;
+                    if status.success() {
+                        sync::runtime::notify(client.root(), &team);
+                    }
+                    Ok(status)
+                }
             }?;
             Ok(ExitCode::from(
                 status

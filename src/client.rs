@@ -4,12 +4,22 @@ use std::path::Path;
 use std::time::Duration;
 
 use reqwest::{Client, Url};
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 
 use crate::board::{MAX_BODY_BYTES, NewPost, Post};
 use crate::directory::{Profile, ProfileInput};
-use crate::server::{ErrorBody, Health};
+#[derive(Deserialize)]
+struct Health {
+    service: String,
+    status: String,
+}
+#[derive(Deserialize)]
+struct ErrorBody {
+    error: String,
+    #[serde(default)]
+    code: Option<String>,
+}
 
 pub struct ApiClient {
     http: Client,
@@ -129,9 +139,7 @@ impl ApiClient {
                 .json::<ErrorBody>()
                 .await
                 .map_err(|e| format!("invalid profile error response: {e}"))?;
-            if error.code.as_deref() == Some("profile_not_found")
-                || (error.code.is_none() && error.error == "profile not found")
-            {
+            if error.code.as_deref() == Some("profile_not_found") {
                 return Ok(None);
             }
             return Err(format!("server returned 404 Not Found: {}", error.error));

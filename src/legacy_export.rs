@@ -45,8 +45,8 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let db = temp.path().join("old.sqlite3");
         let conn = Connection::open(&db).unwrap();
-        crate::board::init_schema(&conn).unwrap();
-        crate::directory::init_schema(&conn).unwrap();
+        conn.execute_batch("CREATE TABLE board_posts(id INTEGER PRIMARY KEY AUTOINCREMENT,team TEXT,author TEXT,body TEXT,created_at TEXT);
+            CREATE TABLE agent_profiles(team TEXT,agent TEXT,display_name TEXT,description TEXT,updated_at TEXT,PRIMARY KEY(team,agent));").unwrap();
         conn.execute("INSERT INTO board_posts(id,team,author,body,created_at) VALUES (7,'t','a','中文 @dell','original')", []).unwrap();
         conn.execute(
             "INSERT INTO agent_profiles VALUES ('t','a','名字','描述','original')",
