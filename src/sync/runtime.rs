@@ -8,7 +8,7 @@ use std::{
     io::{Read, Write},
     net::{SocketAddr, UdpSocket},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, atomic::AtomicU8},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::Notify;
@@ -140,6 +140,8 @@ pub struct Status {
     uploaded: u64,
     downloaded: u64,
     transport_cursor: Option<String>,
+    #[serde(default)]
+    remote_events: String,
 }
 impl Status {
     fn new(team: &str) -> Self {
@@ -152,6 +154,7 @@ impl Status {
             uploaded: 0,
             downloaded: 0,
             transport_cursor: None,
+            remote_events: "stopped".into(),
         }
     }
 }
@@ -246,6 +249,14 @@ pub async fn run(root: &Path, team: &str, interval: Duration) -> Result<()> {
     )?;
     let mut listener = tokio::spawn(listen(socket, token, wake.clone()));
     let _abort = AbortOnDrop(listener.abort_handle());
+    let event_mode = Arc::new(AtomicU8::new(0));
+    let event_task = tokio::spawn(super::events::follow(
+        root.to_owned(),
+        team.to_owned(),
+        wake.clone(),
+        event_mode.clone(),
+    ));
+    let _event_abort = AbortOnDrop(event_task.abort_handle());
     let mut state = Status::new(team);
     state.running = true;
     let status_path = dir.join("status.json");
@@ -281,6 +292,7 @@ pub async fn run(root: &Path, team: &str, interval: Duration) -> Result<()> {
                     (Duration::from_secs(1u64<<failures.saturating_sub(1).min(6)),false)
                 },
             };
+            state.remote_events=super::events::mode_name(&event_mode);
             write_json(&status_path,&state)?;
             if catch_up { tokio::task::yield_now().await;continue; }
             tokio::select! {
@@ -294,6 +306,8 @@ pub async fn run(root: &Path, team: &str, interval: Duration) -> Result<()> {
         Ok(())
     }.await;
     listener.abort();
+    event_task.abort();
+    state.remote_events = "stopped".into();
     state.running = false;
     state.phase = "stopped".into();
     // A status-write failure must not hide an earlier transport/IPC failure.

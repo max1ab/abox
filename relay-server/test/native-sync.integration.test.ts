@@ -7,6 +7,7 @@ import { Pool } from "pg";
 import { describe, expect, it } from "vitest";
 import { migrate } from "@agmsg/reference-server/dist/src/db.js";
 import { createRelayApp } from "../src/app.js";
+import { migrateEvents } from "../src/events.js";
 import { migrateCollaboration } from "../src/collaboration.js";
 
 const enabled=process.env.TEST_DATABASE_URL && process.env.AGENT_MAIL_TEST_BIN && process.env.AGENT_MAIL_TEST_AGMSG_DIR;
@@ -31,13 +32,16 @@ function run(file: string, args: string[], env: NodeJS.ProcessEnv, input=""): Pr
     const temp=await mkdtemp(join(tmpdir(),"agent-mail-native-sync-"));
     let created=false;
     let resident:ChildProcess|undefined;
+    let receiving:ChildProcess|undefined;
     try {
       await admin.query(`CREATE SCHEMA ${schema}`);created=true;
-      pool=new Pool({connectionString:databaseUrl,options:`-c search_path=${schema}`});
-      await migrate(pool);await migrateCollaboration(pool);
+      pool=new Pool({connectionString:databaseUrl,options:`-c search_path=${schema}`,application_name:schema});
+      await migrate(pool);await migrateCollaboration(pool);await migrateEvents(pool);
       app=createRelayApp(pool,{databaseUrl,host:"127.0.0.1",port:8787,logLevel:"silent",retentionMaxLiveMessages:null});
       let refuseUploads=false;
+      let refuseEvents=false;
       app.addHook("onRequest",async(request,reply)=>{
+        if(refuseEvents && request.url==="/v1/agent-mail/events") return reply.code(503).send({error:"test disconnected stream"});
         if(refuseUploads && request.method==="POST" && request.url==="/v1/messages") return reply.code(503).send({error:"test transient failure"});
       });
       const address=await app.listen({host:"127.0.0.1",port:0});
@@ -95,15 +99,36 @@ function run(file: string, args: string[], env: NodeJS.ProcessEnv, input=""): Pr
       };
       await waitFor(async()=>JSON.parse(await invoke(a,["sync","status","contract"])).running);
       await expect(invoke(a,["sync","once","contract"])).rejects.toThrow("already running");
+      receiving=spawn(cli,["--agmsg-dir",b,"sync","run","contract","--interval","60"],{env,stdio:"ignore"});
+      await waitFor(async()=>{
+        const status=JSON.parse(await invoke(b,["sync","status","contract"]));
+        return status.remote_events==="connected" && status.phase==="idle" && status.transport_cursor==="1";
+      });
+      await new Promise(resolve=>setTimeout(resolve,200));
+
       await invoke(a,["agmsg","send","contract","--from","sender","--to","receiver","--stdin"],"IPC wake test");
       await waitFor(async()=>(await pool!.query("SELECT count(*) FROM messages")).rows[0].count==="2");
       expect(JSON.parse(await invoke(a,["sync","status","contract"])).running).toBe(true);
+      await waitFor(async()=>JSON.parse(await invoke(b,["sync","status","contract"])).downloaded>=1);
+      refuseEvents=true;
+      const listeners=await admin.query("SELECT pid FROM pg_stat_activity WHERE application_name=$1",[`${schema}:agent-mail-events`]);
+      expect(listeners.rows).toHaveLength(1);
+      await admin.query("SELECT pg_terminate_backend($1)",[listeners.rows[0].pid]);
+      await waitFor(async()=>{
+        const status=JSON.parse(await invoke(b,["sync","status","contract"]));
+        return status.remote_events==="fallback" && status.phase==="idle" && status.transport_cursor==="2";
+      });
+      await new Promise(resolve=>setTimeout(resolve,200));
+      await invoke(a,["agmsg","send","contract","--from","sender","--to","receiver","--stdin"],"mail while SSE is disconnected");
+      await waitFor(async()=>(await pool!.query("SELECT count(*) FROM messages")).rows[0].count==="3");
+      refuseEvents=false;
+      await waitFor(async()=>JSON.parse(await invoke(b,["sync","status","contract"])).downloaded>=2);
       refuseUploads=true;
       await invoke(a,["agmsg","send","contract","--from","sender","--to","receiver","--stdin"],"retry keeps the outbox");
       await waitFor(async()=>JSON.parse(await invoke(a,["sync","status","contract"])).phase==="retrying");
-      expect((await pool.query("SELECT count(*) FROM messages")).rows[0].count).toBe("2");
+      expect((await pool.query("SELECT count(*) FROM messages")).rows[0].count).toBe("3");
       refuseUploads=false;
-      await waitFor(async()=>(await pool!.query("SELECT count(*) FROM messages")).rows[0].count==="3");
+      await waitFor(async()=>(await pool!.query("SELECT count(*) FROM messages")).rows[0].count==="4");
       // Killing the process must release the OS lock even without cleanup.
       resident.kill("SIGKILL");
       await new Promise<void>(resolve=>resident!.once("close",()=>resolve()));
@@ -114,7 +139,7 @@ function run(file: string, args: string[], env: NodeJS.ProcessEnv, input=""): Pr
       await waitFor(async()=>JSON.parse(await invoke(a,["sync","status","contract"])).running);
       // The upstream shell has no native IPC hook. Recovery still finds its write.
       await run("bash",[join(a,"scripts/send.sh"),"contract","sender","receiver","message without IPC"],env);
-      await waitFor(async()=>(await pool!.query("SELECT count(*) FROM messages")).rows[0].count==="4");
+      await waitFor(async()=>(await pool!.query("SELECT count(*) FROM messages")).rows[0].count==="5");
       resident.kill("SIGTERM");
       const exit=await new Promise<number|null>(resolve=>resident!.once("close",code=>resolve(code)));
       expect(exit).toBe(0);resident=undefined;
@@ -122,6 +147,7 @@ function run(file: string, args: string[], env: NodeJS.ProcessEnv, input=""): Pr
 
 
     } finally {
+      if(receiving && receiving.exitCode===null && receiving.signalCode===null) {receiving.kill("SIGKILL");await new Promise<void>(resolve=>receiving!.once("close",()=>resolve()));}
       if(resident && resident.exitCode===null && resident.signalCode===null) {resident.kill("SIGKILL");await new Promise<void>(resolve=>resident!.once("close",()=>resolve()));}
       await app?.close();await pool?.end();
       if(created) await admin.query(`DROP SCHEMA ${schema} CASCADE`);

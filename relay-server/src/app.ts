@@ -3,6 +3,7 @@ import { dataPlane } from "@agmsg/reference-server/dist/src/app.js";
 import type { Config } from "@agmsg/reference-server/dist/src/config.js";
 import type { Pool } from "pg";
 import { collaboration } from "./collaboration.js";
+import { events } from "./events.js";
 
 // The caller owns the pool and closes it after app.close(). No database work
 // happens during construction, so embedding and validation can be tested offline.
@@ -20,5 +21,6 @@ export function createRelayApp(pool: Pool, config: Config): FastifyInstance {
     await scope.register(dataPlane, { pool, config });
   });
   void app.register(async (scope) => { await collaboration(scope, pool); });
+  void app.register(async (scope) => { await events(scope, pool); });
   return app;
 }

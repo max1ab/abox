@@ -276,6 +276,7 @@ impl Context {
     }
 }
 
+mod events;
 pub mod runtime;
 
 pub async fn once(root: &Path, team: &str) -> Result<Outcome> {
