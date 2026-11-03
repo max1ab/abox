@@ -1,6 +1,7 @@
 import { loadConfig } from "@agmsg/reference-server/dist/src/config.js";
 import { createPool, migrate } from "@agmsg/reference-server/dist/src/db.js";
 import { createRelayApp } from "./app.js";
+import { migrateCollaboration } from "./collaboration.js";
 
 async function start(): Promise<void> {
   const config = loadConfig();
@@ -8,6 +9,7 @@ async function start(): Promise<void> {
   let app: ReturnType<typeof createRelayApp> | undefined;
   try {
     await migrate(pool);
+    await migrateCollaboration(pool);
     app = createRelayApp(pool, config);
     await app.listen({ host: config.host, port: config.port });
   } catch (error) {

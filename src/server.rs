@@ -38,6 +38,8 @@ async fn health(State(store): State<Store>) -> Result<Json<Health>, ApiError> {
 #[derive(Serialize, Deserialize)]
 pub struct ErrorBody {
     pub error: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
 }
 
 pub(crate) struct ApiError(StatusCode, String);
@@ -59,7 +61,16 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (self.0, Json(ErrorBody { error: self.1 })).into_response()
+        let code = (self.0 == StatusCode::NOT_FOUND && self.1 == "profile not found")
+            .then(|| "profile_not_found".to_string());
+        (
+            self.0,
+            Json(ErrorBody {
+                error: self.1,
+                code,
+            }),
+        )
+            .into_response()
     }
 }
 
@@ -112,6 +123,7 @@ pub(crate) fn router(path: &Path) -> Result<Router, String> {
     let store = Store::open(path)?;
     Ok(Router::new()
         .route("/v1/health", get(health))
+        .route("/v1/agent-mail/health", get(health))
         .merge(board::routes())
         .merge(directory::routes())
         .layer(DefaultBodyLimit::max(1024 * 1024))

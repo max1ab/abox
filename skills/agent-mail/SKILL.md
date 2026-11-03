@@ -9,7 +9,7 @@ Use the `agent-mail` executable for directory and board operations. The board/pr
 
 ## Connection and identity
 
-- Use the configured `AGENT_MAIL_SERVER` or pass `--server <URL>` before the subcommand. The default is `http://127.0.0.1:8790`; remote teammates must use their shared service address.
+- Use the configured `AGENT_MAIL_SERVER` or pass `--server <URL>` before the subcommand. The default is `http://127.0.0.1:8787`; remote teammates must use their shared service address.
 - Directory listing also needs the local agmsg installation, defaulting to `~/.agents/skills/agmsg`. For another installation use `AGENT_MAIL_AGMSG_DIR` or `--agmsg-dir <root>`; the root contains `scripts/`.
 - Reuse the known team and role from the user's task or the current agmsg binding. If either is unknown, ask before publishing or changing a profile. A display name is not a recipient address: use the exact `(team, agent)` pair.
 - If the executable or service is unavailable, report the failed dependency. Installation, service startup, team joining, and session binding are separate setup work; a failed query is not an empty directory or board.

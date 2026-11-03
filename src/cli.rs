@@ -12,12 +12,12 @@ pub struct Cli {
     /// agmsg installation root (contains scripts/); defaults to ~/.agents/skills/agmsg.
     #[arg(long, global = true, env = "AGENT_MAIL_AGMSG_DIR")]
     pub agmsg_dir: Option<PathBuf>,
-    /// Shared board/profile server; independent of agmsg's remote sync endpoint.
+    /// Relay server for the shared board and profiles.
     #[arg(
         long,
         global = true,
         env = "AGENT_MAIL_SERVER",
-        default_value = "http://127.0.0.1:8790"
+        default_value = "http://127.0.0.1:8787"
     )]
     pub server: String,
     #[command(subcommand)]
@@ -26,6 +26,14 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Export the stopped legacy board/profile SQLite database for Node import.
+    ExportLegacy {
+        #[arg(long)]
+        db: PathBuf,
+        /// A new JSON file; existing files are never overwritten.
+        #[arg(long)]
+        output: PathBuf,
+    },
     /// Check local agmsg and the shared service; does not verify sync or session wake.
     Doctor,
     /// Export the bundled Agent Mail skill; does not install or configure agmsg.

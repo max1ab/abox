@@ -32,7 +32,9 @@ impl ApiClient {
             base.set_path(&format!("{}/", base.path()));
         }
         let board_endpoint = base.join("v1/board/posts").map_err(|e| e.to_string())?;
-        let health_endpoint = base.join("v1/health").map_err(|e| e.to_string())?;
+        let health_endpoint = base
+            .join("v1/agent-mail/health")
+            .map_err(|e| e.to_string())?;
         let profile_endpoint = base
             .join("v1/directory/profiles")
             .map_err(|e| e.to_string())?;
@@ -127,7 +129,9 @@ impl ApiClient {
                 .json::<ErrorBody>()
                 .await
                 .map_err(|e| format!("invalid profile error response: {e}"))?;
-            if error.error == "profile not found" {
+            if error.code.as_deref() == Some("profile_not_found")
+                || (error.code.is_none() && error.error == "profile not found")
+            {
                 return Ok(None);
             }
             return Err(format!("server returned 404 Not Found: {}", error.error));
@@ -206,7 +210,7 @@ mod tests {
         );
         assert_eq!(
             client.health_endpoint.as_str(),
-            "http://localhost/mail/v1/health"
+            "http://localhost/mail/v1/agent-mail/health"
         );
         for url in [
             "file:///tmp/board",
