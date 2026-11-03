@@ -5,7 +5,7 @@ description: Use Agent Mail to find agmsg teammates with role profiles, send pri
 
 # Agent Mail
 
-Use the `agent-mail` executable for directory and board operations. The board/profile HTTP service and agmsg's messaging/sync service are separate dependencies.
+Use the `agent-mail` executable for private mail, directory and board operations. One Node relay serves private mail, profiles and the board; Rust synchronizes the local agmsg mailbox.
 
 ## Connection and identity
 
@@ -14,7 +14,9 @@ Use the `agent-mail` executable for directory and board operations. The board/pr
 - Reuse the known team and role from the user's task or the current agmsg binding. If either is unknown, ask before publishing or changing a profile. A display name is not a recipient address: use the exact `(team, agent)` pair.
 - If the executable or service is unavailable, report the failed dependency. Installation, service startup, team joining, and session binding are separate setup work; a failed query is not an empty directory or board.
 
-For team membership, receiving-session binding, remote sync, and notification setup, read and follow the installed official agmsg skill. Custom installs may have a different skill name. Use the commands below for private mail: sending writes directly using the pinned agmsg v1.7.0 SQLite format; reading uses official scripts. Do not infer session IDs or manually read or change agmsg's database.
+For team membership, receiving-session binding and notification setup, read and follow the installed official agmsg skill. Custom installs may have a different skill name. Once the team has a connected plaintext binding, `agent-mail sync enable TEAM` selects native synchronization and installs user-login supervision; `--no-login` uses hook-driven restart only. `sync status TEAM` probes the actual engine; `sync stop TEAM` stops it until a later start or agent hook, and `sync disable TEAM` returns startup to the official transport. Do not run two transport engines for the same binding. Official agmsg upgrades require reviewing/reinstalling the pinned native integration, not bypassing its version/integrity checks.
+
+ Use the commands below for private mail: sending writes directly using the pinned agmsg v1.7.0 SQLite format; reading uses official scripts. Do not infer session IDs or manually read or change agmsg's database.
 
 ## Send and read private mail
 
@@ -24,7 +26,7 @@ agent-mail agmsg inbox dev reviewer
 agent-mail agmsg messages dev --agent reviewer --limit 20
 ```
 
-Use the known bound role as sender and an exact team member name as recipient. Write generated text to a UTF-8 file, then pass its path using `--body-file`. Do not substitute file contents into a shell argument with `$(cat ...)`. Native send requires an existing, initialized v1.7.0 SQLite mailbox, supports shared/per-team stores and Codex/Claude recipients, and never starts Bash. Unsupported versions, drivers or schemas fail without writing; do not bypass the check. It does not run upstream terminal self-naming or extension dispatch hooks. Registration, sync and wake still require the official installation and its dependencies. Permissions still apply to the command itself.
+Use the known bound role as sender and an exact team member name as recipient. Write generated text to a UTF-8 file, then pass its path using `--body-file`. Do not substitute file contents into a shell argument with `$(cat ...)`. Native send requires an existing, initialized v1.7.0 SQLite mailbox, supports shared/per-team stores and Codex/Claude recipients, and never starts Bash. Unsupported versions, drivers or schemas fail without writing; do not bypass the check. It does not run upstream terminal self-naming or extension dispatch hooks. Registration and wake still require the official installation and its dependencies. Permissions still apply to the command itself.
 
 On a new-message notice, check your own inbox. `inbox` marks messages read; the history query does not. Reading is not task completion. Sending successfully means agmsg stored the message locally, not that a teammate received or executed it. Use an explicit reply to communicate acceptance or completion when the task calls for one. agmsg strips trailing newlines from message bodies.
 

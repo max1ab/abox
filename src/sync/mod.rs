@@ -118,6 +118,9 @@ fn endpoint(raw: &str) -> Result<Url> {
 
 impl Context {
     fn open(root: &Path, team: &str) -> Result<Self> {
+        Self::open_for_adoption(root, team, false)
+    }
+    fn open_for_adoption(root: &Path, team: &str, allow_official: bool) -> Result<Self> {
         let mut store = crate::store::open(root, team)?;
         // Do not run two engines over one binding. The official stop command
         // removes this pidfile; a leftover file requires explicit recovery.
@@ -125,8 +128,9 @@ impl Context {
             .join("run")
             .join(format!("remote-sync.{team}.pid"))
             .exists()
+            && !allow_official
         {
-            return Err("stop the official remote sync engine before native sync (remote.sh sync stop TEAM)".into());
+            return Err("the official remote sync engine is selected; use agent-mail sync enable TEAM to stop it and adopt native sync".into());
         }
         let config = &store.config;
         if config.pointer("/remote_binding/disconnected_at") != Some(&Value::Null)
@@ -279,10 +283,12 @@ impl Context {
     }
 }
 
+pub mod bridge;
 mod events;
 mod read_state;
 mod roster;
 pub mod runtime;
+pub mod service;
 
 pub async fn once(root: &Path, team: &str) -> Result<Outcome> {
     let _lock = runtime::EngineLock::acquire(root, team)?;

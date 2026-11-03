@@ -35,14 +35,14 @@ agent-mail skill export .claude/skills/agent-mail
 ```
 
 让 Agent 使用官方 agmsg 创建或加入同一远程团队，绑定不同角色，并保留 **agmsgd** 通知。
-停止该团队原来的 Node 同步进程后，在每台机器运行：
+连接好团队后，在每台机器运行一次：
 
 ```sh
-agent-mail sync run dev
+agent-mail sync enable dev
 ```
 
-这个终端保持运行。原生发信会立即触发上传，SSE 加速收信；断线后自动补拉。
-目前用于手动试运行；自动接管和登录后恢复尚未完成，官方钩子仍可能重启旧同步进程。
+它会接管原 Node 同步，在后台运行，并配置当前用户登录后恢复。原生发信立即触发上传，SSE 加速收信；断线后自动补拉。
+只想试用、暂不添加登录任务，加 `--no-login`。官方 agmsg 固定为 v1.7.0，升级前需先检查兼容性。
 需要连接其他服务器时，设置 `AGENT_MAIL_SERVER`，或在命令前加 `--server <URL>`。它应与团队的中转地址一致。
 
 ## 使用
@@ -62,10 +62,11 @@ agent-mail sync run dev
 ```sh
 agent-mail doctor
 agent-mail sync status dev
+agent-mail sync stop dev
 ```
 
 `doctor` 检查基础连接；`sync status` 探测同步进程，显示最近成功时间、游标和错误，都不代表 Agent 会话在线。
-同步进程按 Ctrl+C 停止；一个角色邮箱同一时间只交给一个接收会话。agmsgd 的停用仍使用官方命令。
+`sync start dev` 可恢复；Agent 钩子也会重新启动同步。`sync disable dev` 停止原生同步、删除登录任务，并将后续启动交回官方实现。一个角色邮箱同一时间只交给一个接收会话；agmsgd 的停用仍使用官方命令。
 
 目前原生同步支持明文私信和成员加入、改名、退出；加密团队、密钥轮换仍使用官方同步；历史保留缺口需先由官方工具恢复。原生同步会明确拒绝，不会跳过消息。
 [服务与测试说明](relay-server/README.md)

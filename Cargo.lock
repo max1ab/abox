@@ -9,12 +9,14 @@ dependencies = [
  "base64 0.22.1",
  "clap",
  "reqwest",
+ "ring",
  "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

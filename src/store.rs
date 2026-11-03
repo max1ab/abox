@@ -25,7 +25,7 @@ fn home() -> Result<PathBuf, String> {
 }
 
 // Git Bash paths can also be supplied in AGMSG_CONFIG / AGMSG_STORAGE_PATH.
-fn native_path(path: &Path) -> PathBuf {
+pub(crate) fn native_path(path: &Path) -> PathBuf {
     let text = path.to_string_lossy();
     let b = text.as_bytes();
     if cfg!(windows) && b.len() >= 3 && b[0] == b'/' && b[1].is_ascii_alphabetic() && b[2] == b'/' {

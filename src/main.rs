@@ -31,6 +31,22 @@ async fn run(cli: Cli) -> Result<ExitCode, String> {
         Command::Sync { command } => {
             let agmsg = agmsg::Agmsg::new(cli.agmsg_dir)?;
             match command {
+                SyncCommand::Enable { team, no_login } => {
+                    sync::bridge::enable(&agmsg, &team, no_login).await?;
+                    client::print_jsonl([sync::runtime::status(agmsg.root(), &team)?])?;
+                }
+                SyncCommand::Disable { team } => {
+                    sync::bridge::disable(agmsg.root(), &team).await?;
+                }
+                SyncCommand::Start { team } => {
+                    client::print_jsonl([sync::runtime::start(agmsg.root(), &team)?])?;
+                }
+                SyncCommand::Stop { team } => {
+                    let _control = sync::runtime::ControlLock::acquire(agmsg.root(), &team)?;
+                    sync::service::pause(agmsg.root(), &team)?;
+                    sync::runtime::stop(agmsg.root(), &team).await?;
+                }
+                SyncCommand::Launch { team } => sync::runtime::launch(agmsg.root(), &team)?,
                 SyncCommand::Once { team } => {
                     client::print_jsonl([sync::once(agmsg.root(), &team).await?])?;
                 }

@@ -13,11 +13,11 @@ use std::{
 };
 use tokio::sync::Notify;
 
-fn directory(root: &Path, team: &str) -> Result<PathBuf> {
+pub(super) fn directory(root: &Path, team: &str) -> Result<PathBuf> {
     crate::store::team_name(team)?;
     Ok(root.join("run/native-sync").join(team))
 }
-fn prepare_directory(path: &Path) -> Result<()> {
+pub(super) fn prepare_directory(path: &Path) -> Result<()> {
     let mut builder = fs::DirBuilder::new();
     builder.recursive(true);
     #[cfg(unix)]
@@ -39,7 +39,7 @@ fn private_options() -> OpenOptions {
     }
     options
 }
-fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
+pub(super) fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
     let temporary = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
     let result = (|| {
         let mut file = private_options()
@@ -70,6 +70,24 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
 
 pub(super) struct EngineLock {
     _file: File,
+}
+pub(crate) struct ControlLock {
+    _file: File,
+}
+impl ControlLock {
+    pub(crate) fn acquire(root: &Path, team: &str) -> Result<Self> {
+        let dir = directory(root, team)?;
+        prepare_directory(&dir)?;
+        let file = private_options()
+            .read(true)
+            .create(true)
+            .truncate(false)
+            .open(dir.join("control.lock"))
+            .map_err(|e| e.to_string())?;
+        file.try_lock()
+            .map_err(|_| "another sync lifecycle command is in progress; retry shortly")?;
+        Ok(Self { _file: file })
+    }
 }
 impl EngineLock {
     pub(super) fn acquire(root: &Path, team: &str) -> Result<Self> {
@@ -133,7 +151,7 @@ pub(crate) fn notify(root: &Path, team: &str) {
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Status {
     team: String,
-    running: bool,
+    pub(super) running: bool,
     phase: String,
     last_success_ms: Option<u64>,
     last_error: Option<String>,
@@ -198,7 +216,12 @@ impl Drop for AbortOnDrop {
     }
 }
 
-async fn listen(socket: tokio::net::UdpSocket, token: String, wake: Arc<Notify>) -> Result<()> {
+async fn listen(
+    socket: tokio::net::UdpSocket,
+    token: String,
+    wake: Arc<Notify>,
+    stop: Arc<Notify>,
+) -> Result<()> {
     let mut buffer = [0u8; 256];
     loop {
         let (n, source) = socket
@@ -214,6 +237,7 @@ async fn listen(socket: tokio::net::UdpSocket, token: String, wake: Arc<Notify>)
         let parts: Vec<_> = text.split_whitespace().collect();
         match parts.as_slice() {
             ["wake", given] if *given == token => wake.notify_one(),
+            ["stop", given] if *given == token => stop.notify_one(),
             ["ping", given, nonce] if *given == token && uuid::Uuid::parse_str(nonce).is_ok() => {
                 let _ = socket
                     .send_to(format!("pong {nonce}").as_bytes(), source)
@@ -236,6 +260,10 @@ pub async fn run(root: &Path, team: &str, interval: Duration) -> Result<()> {
     let token = uuid::Uuid::new_v4().to_string();
     let address = socket.local_addr().map_err(|e| e.to_string())?;
     let wake = Arc::new(Notify::new());
+    let stop = Arc::new(Notify::new());
+    #[cfg(unix)]
+    let _ignore_hangup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())
+        .map_err(|e| e.to_string())?;
     let _published = Published {
         path: dir.join("endpoint.json"),
         token: token.clone(),
@@ -247,7 +275,7 @@ pub async fn run(root: &Path, team: &str, interval: Duration) -> Result<()> {
             token: token.clone(),
         },
     )?;
-    let mut listener = tokio::spawn(listen(socket, token, wake.clone()));
+    let mut listener = tokio::spawn(listen(socket, token, wake.clone(), stop.clone()));
     let _abort = AbortOnDrop(listener.abort_handle());
     let event_mode = Arc::new(AtomicU8::new(0));
     let event_task = tokio::spawn(super::events::follow(
@@ -270,6 +298,7 @@ pub async fn run(root: &Path, team: &str, interval: Duration) -> Result<()> {
             let outcome=tokio::select! {
                 biased;
                 _=&mut shutdown=>break,
+                _=stop.notified()=>break,
                 stopped=&mut listener=>return Err(format!("native IPC listener stopped: {stopped:?}")),
                 result=super::cycle(root,team)=>result,
             };
@@ -298,6 +327,7 @@ pub async fn run(root: &Path, team: &str, interval: Duration) -> Result<()> {
             tokio::select! {
                 biased;
                 _=&mut shutdown=>break,
+                _=stop.notified()=>break,
                 stopped=&mut listener=>return Err(format!("native IPC listener stopped: {stopped:?}")),
                 _=wake.notified()=>{},
                 _=tokio::time::sleep(delay)=>{},
@@ -324,6 +354,148 @@ async fn shutdown_signal() {
         }
     }
     let _ = tokio::signal::ctrl_c().await;
+}
+
+/// Spawn without inheriting agent/SSH output pipes. The child, not its PID or
+/// this return value, proves readiness by publishing its authenticated IPC.
+pub fn start(root: &Path, team: &str) -> Result<serde_json::Value> {
+    let _control = ControlLock::acquire(root, team)?;
+    let dir = directory(root, team)?;
+    if !dir.join("engine").is_file() {
+        return Err("select native sync first with: agent-mail sync enable TEAM".into());
+    }
+    if status(root, team)?.running {
+        return Ok(serde_json::json!({"state":"running"}));
+    }
+    if super::service::configured(root, team)? {
+        super::service::resume(root, team)?;
+        return wait_ready(root, team);
+    }
+    prepare_directory(&dir)?;
+    spawn_background(root, team)?;
+    wait_ready(root, team)
+}
+#[cfg(windows)]
+fn spawn_background(root: &Path, team: &str) -> Result<()> {
+    super::service::spawn_detached(root, team)
+}
+#[cfg(not(windows))]
+fn spawn_background(root: &Path, team: &str) -> Result<()> {
+    let dir = directory(root, team)?;
+    let log = private_options()
+        .create(true)
+        .append(true)
+        .open(dir.join("engine.log"))
+        .map_err(|e| e.to_string())?;
+    let mut command =
+        std::process::Command::new(std::env::current_exe().map_err(|e| e.to_string())?);
+    command
+        .args(["--agmsg-dir"])
+        .arg(root)
+        .args(["sync", "run", team]);
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(log.try_clone().map_err(|e| e.to_string())?)
+        .stderr(log);
+    if let Ok(env) =
+        read_json::<std::collections::BTreeMap<String, String>>(&dir.join("environment.json"))
+    {
+        for (name, value) in env {
+            if super::bridge::ENVIRONMENT.contains(&name.as_str()) {
+                command.env(name, value);
+            }
+        }
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    command
+        .spawn()
+        .map_err(|e| format!("cannot start native sync: {e}"))?;
+    Ok(())
+}
+
+fn wait_ready(root: &Path, team: &str) -> Result<serde_json::Value> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        if status(root, team)?.running {
+            return Ok(serde_json::json!({"state":"running"}));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    Err("native sync did not become ready; inspect run/native-sync/TEAM/engine.log and retry sync start".into())
+}
+
+pub async fn stop(root: &Path, team: &str) -> Result<()> {
+    let dir = directory(root, team)?;
+    if !dir.exists() {
+        return Ok(());
+    }
+    if let Ok(lock) = EngineLock::acquire(root, team) {
+        drop(lock);
+        return Ok(());
+    }
+    let endpoint: Endpoint = read_json(&dir.join("endpoint.json"))?;
+    if !endpoint.valid() {
+        return Err("invalid native control endpoint".into());
+    }
+    let socket = UdpSocket::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
+    for _ in 0..100 {
+        socket
+            .send_to(
+                format!("stop {}", endpoint.token).as_bytes(),
+                endpoint.address,
+            )
+            .map_err(|e| e.to_string())?;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        if let Ok(lock) = EngineLock::acquire(root, team) {
+            drop(lock);
+            return Ok(());
+        }
+    }
+    Err("native sync did not release its engine lock; no process was killed by PID".into())
+}
+
+/// Service managers supervise this waiting launcher and its child. Storage
+/// environment is restored on the child without mutating a threaded process.
+pub fn launch(root: &Path, team: &str) -> Result<()> {
+    let dir = directory(root, team)?;
+    prepare_directory(&dir)?;
+    let log = private_options()
+        .create(true)
+        .append(true)
+        .open(dir.join("engine.log"))
+        .map_err(|e| e.to_string())?;
+    let mut command =
+        std::process::Command::new(std::env::current_exe().map_err(|e| e.to_string())?);
+    command
+        .arg("--agmsg-dir")
+        .arg(root)
+        .args(["sync", "run", team]);
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(log.try_clone().map_err(|e| e.to_string())?)
+        .stderr(log);
+    let values =
+        read_json::<std::collections::BTreeMap<String, String>>(&dir.join("environment.json"))?;
+    for (name, value) in values {
+        if super::bridge::ENVIRONMENT.contains(&name.as_str()) {
+            command.env(name, value);
+        }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let status = command.status().map_err(|e| e.to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("native sync exited; inspect its engine.log".into())
+    }
 }
 
 #[cfg(test)]

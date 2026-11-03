@@ -19,7 +19,7 @@ pub struct Agmsg {
     bash: OsString,
 }
 
-fn shell_path(path: &Path) -> OsString {
+pub(crate) fn shell_path(path: &Path) -> OsString {
     if cfg!(windows) {
         windows_shell_path(&path.to_string_lossy()).into()
     } else {
@@ -40,6 +40,61 @@ fn windows_shell_path(path: &str) -> String {
 }
 
 impl Agmsg {
+    pub(crate) async fn resume_daemon(&self, operation: u64) -> Result<(), String> {
+        let mut command = tokio::process::Command::new(&self.bash);
+        command
+            .arg(shell_path(&self.scripts.join("daemon.sh")))
+            .args(["start", "--only-if-op-gen", &operation.to_string()])
+            .kill_on_drop(true);
+        let output = tokio::time::timeout(std::time::Duration::from_secs(45), command.output())
+            .await
+            .map_err(|_| "agmsgd restart timed out; check agmsg daemon status")?
+            .map_err(|e| e.to_string())?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(format!(
+                "agmsgd could not resume after the bridge update: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ))
+        }
+    }
+    pub(crate) async fn stop_remote(&self, team: &str) -> Result<(), String> {
+        crate::store::team_name(team)?;
+        let mut command = tokio::process::Command::new(&self.bash);
+        // v1.7.0 has no public `sync stop`. Reuse its authenticated stop
+        // implementation under the same team lock, without disconnecting or
+        // changing identity. This internal contract is pinned by the bridge.
+        command.arg("-c").arg(r#"
+source "$1/scripts/remote.sh"
+team="$2"
+agmsg_lock_acquire "$TEAMS_DIR/$team" || exit 1
+IFS=$'\t' read -r state ignored < <(_remote_systemd_engine_status "$team")
+case "$state" in
+  running|starting|inactive|unknown)
+    echo 'an official systemd unit owns this team; disable that user unit before native adoption' >&2
+    agmsg_lock_release
+    exit 1 ;;
+esac
+result=0
+_remote_sync_engine_stop "$team" || result=$?
+agmsg_lock_release
+exit "$result"
+"#).arg("agent-mail-stop-official").arg(shell_path(&self.root)).arg(team);
+        command.kill_on_drop(true);
+        let output = tokio::time::timeout(std::time::Duration::from_secs(30), command.output())
+            .await
+            .map_err(|_| "official sync stop timed out; inspect remote.sh status before retrying")?
+            .map_err(|e| e.to_string())?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(format!(
+                "official sync stop failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ))
+        }
+    }
     pub(crate) fn root(&self) -> &Path {
         &self.root
     }

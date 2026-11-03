@@ -33,6 +33,7 @@ function run(file: string, args: string[], env: NodeJS.ProcessEnv, input=""): Pr
     let created=false;
     let resident:ChildProcess|undefined;
     let receiving:ChildProcess|undefined;
+    let managed=false;
     try {
       await admin.query(`CREATE SCHEMA ${schema}`);created=true;
       pool=new Pool({connectionString:databaseUrl,options:`-c search_path=${schema}`,application_name:schema});
@@ -192,7 +193,42 @@ function run(file: string, args: string[], env: NodeJS.ProcessEnv, input=""): Pr
       expect(localAfter).toEqual(localBefore);
       expect((await pool.query(`SELECT count(*) FROM messages ${privateMessages}`)).rows[0].count).toBe("5");
 
+      // Exercise the real official daemon-to-native handoff, rather than a
+      // fake pidfile. Only this temporary installation is patched; no login
+      // service is registered on the host.
+      const connectedConfig=JSON.parse(await readFile(join(a,"teams/contract/config.json"),"utf8"));
+      connectedConfig.remote_binding.connected_at=new Date().toISOString();
+      connectedConfig.remote_binding.capabilities=remote;
+      await writeFile(join(a,"teams/contract/config.json"),JSON.stringify(connectedConfig));
+      await run("bash",["-c",'source "$1/scripts/lib/install-manifest.sh"; agmsg_install_manifest_write "$1/scripts" "$1/run/install-manifest.json" v1.7.0 integration-test 1 1',"manifest",a],env);
+      managed=true; // Cleanup must run even if adoption fails halfway through.
+      try { await run("bash",[join(a,"scripts/remote.sh"),"sync","start","contract"],env); }
+      catch(error) {
+        const log=await readFile(join(a,"run/remote-sync.contract.log"),"utf8").catch(()=>"no official engine log");
+        throw new Error(`${String(error)}\nOfficial temporary engine log:\n${log}`);
+      }
+      const oldPid=await readFile(join(a,"run/remote-sync.contract.pid"),"utf8");
+      expect(oldPid.trim()).toMatch(/^\d+$/);
+      const selected=JSON.parse(await invoke(a,["sync","enable","contract","--no-login"]));
+      expect(selected.running).toBe(true);
+      await expect(readFile(join(a,"run/remote-sync.contract.pid"))).rejects.toThrow();
+      await invoke(a,["sync","stop","contract"]);
+      expect(JSON.parse(await invoke(a,["sync","status","contract"])).running).toBe(false);
+      // Both direct upstream start and the session hook select native now.
+      await run("bash",[join(a,"scripts/remote.sh"),"sync","start","contract"],env);
+      expect(JSON.parse(await invoke(a,["sync","status","contract"])).running).toBe(true);
+      await invoke(a,["agmsg","send","contract","--from","sender","--to","receiver","--stdin"],"native after actual official handoff");
+      await waitFor(async()=>(await pool!.query(`SELECT count(*) FROM messages ${privateMessages}`)).rows[0].count==="6");
+      await waitFor(async()=>(await invoke(b,["agmsg","messages","contract"])).includes("native after actual official handoff"));
+      await invoke(a,["sync","disable","contract"]);managed=false;
+      expect(JSON.parse(await invoke(a,["sync","status","contract"])).running).toBe(false);
+
     } finally {
+      if(managed) {
+        const env={...process.env};
+        for(const key of ["AGMSG_STORAGE_PATH","AGMSG_PLUGIN_DIRS","SKILL_DIR","CODEX_THREAD_ID","CODEX_SESSION_ID","AGENT_MAIL_BASH"]) delete env[key];
+        await run(resolve(process.env.AGENT_MAIL_TEST_BIN!),["--agmsg-dir",join(temp,"a"),"sync","disable","contract"],env).catch(()=>{});
+      }
       if(receiving && receiving.exitCode===null && receiving.signalCode===null) {receiving.kill("SIGKILL");await new Promise<void>(resolve=>receiving!.once("close",()=>resolve()));}
       if(resident && resident.exitCode===null && resident.signalCode===null) {resident.kill("SIGKILL");await new Promise<void>(resolve=>resident!.once("close",()=>resolve()));}
       await app?.close();await pool?.end();

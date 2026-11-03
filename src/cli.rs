@@ -64,6 +64,21 @@ pub enum Command {
 
 #[derive(Subcommand)]
 pub enum SyncCommand {
+    /// Select Rust synchronization for this team and restart it at user login.
+    Enable {
+        team: String,
+        /// Use hook-driven restart only; do not install a user login service.
+        #[arg(long)]
+        no_login: bool,
+    },
+    /// Stop native sync and return hook startup to the official engine.
+    Disable { team: String },
+    /// Start the selected native engine in the background, or resume its service.
+    Start { team: String },
+    /// Stop native sync; a later agent hook or start can resume it.
+    Stop { team: String },
+    #[command(hide = true)]
+    Launch { team: String },
     /// Upload and download one page; stop official remote sync first.
     Once { team: String },
     /// Keep mail synchronized; native sends notify this process immediately.
