@@ -2,7 +2,8 @@
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 use std::{
-    env, fs, io,
+    env, fs,
+    io::{self, Write},
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -47,13 +48,37 @@ pub(crate) fn team_name(team: &str) -> Result<(), String> {
     Ok(())
 }
 
-// Use the same exclusion marker as registry-lock.sh. Never reclaim another
-// owner's lock. A crash leaves a conservative lock requiring operator recovery.
-pub(crate) struct TeamLock(PathBuf);
+// Share the official directory/owner exclusion protocol. A separate kernel
+// lock proves when a marker written by this native implementation is orphaned;
+// empty/foreign markers and official holder records are never reclaimed here.
+pub(crate) struct TeamLock {
+    path: PathBuf,
+    marker: String,
+    _kernel: fs::File,
+}
 impl TeamLock {
     pub(crate) fn acquire(team_dir: &Path) -> Result<Self, String> {
-        let path = team_dir.join(".config.lock");
         let start = std::time::Instant::now();
+        let mut options = fs::OpenOptions::new();
+        options.read(true).write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let kernel = options
+            .open(team_dir.join(".agent-mail-registry.lock"))
+            .map_err(|e| e.to_string())?;
+        loop {
+            match kernel.try_lock() {
+                Ok(()) => break,
+                Err(fs::TryLockError::WouldBlock) if start.elapsed() < Duration::from_secs(10) => {
+                    std::thread::sleep(Duration::from_millis(20))
+                }
+                Err(e) => return Err(format!("cannot lock native registry owner: {e}")),
+            }
+        }
+        let path = team_dir.join(".config.lock");
         loop {
             match fs::create_dir(&path) {
                 Ok(()) => break,
@@ -61,6 +86,18 @@ impl TeamLock {
                     if e.kind() == io::ErrorKind::AlreadyExists
                         && start.elapsed() < Duration::from_secs(10) =>
                 {
+                    let owner = fs::read_to_string(path.join(".owner")).unwrap_or_default();
+                    let native = owner
+                        .strip_prefix("agent-mail-registry-v1 ")
+                        .is_some_and(|token| uuid::Uuid::parse_str(token).is_ok());
+                    let only_owner = fs::read_dir(&path).ok().is_some_and(|mut items| {
+                        items.all(|entry| entry.is_ok_and(|item| item.file_name() == ".owner"))
+                    });
+                    if native && only_owner && !team_dir.join(".config.lock.holder").exists() {
+                        fs::remove_file(path.join(".owner")).map_err(|e| e.to_string())?;
+                        fs::remove_dir(&path).map_err(|e| e.to_string())?;
+                        continue;
+                    }
                     std::thread::sleep(Duration::from_millis(20));
                 }
                 Err(e) => {
@@ -70,15 +107,27 @@ impl TeamLock {
                 }
             }
         }
-        if let Err(e) = fs::OpenOptions::new()
+        let marker = format!("agent-mail-registry-v1 {}", uuid::Uuid::new_v4());
+        let mut owner = match fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(path.join(".owner"))
         {
-            let _ = fs::remove_dir(&path);
-            return Err(format!("cannot claim team registry lock: {e}"));
-        }
-        let lock = Self(path);
+            Ok(file) => file,
+            Err(e) => {
+                let _ = fs::remove_dir(&path);
+                return Err(format!("cannot claim team registry lock: {e}"));
+            }
+        };
+        owner
+            .write_all(marker.as_bytes())
+            .map_err(|e| e.to_string())?;
+        drop(owner);
+        let lock = Self {
+            path,
+            marker,
+            _kernel: kernel,
+        };
         if team_dir.join(".config.lock.holder").exists() {
             return Err(
                 "team registry has a stale holder record; use official recovery before native send"
@@ -90,8 +139,10 @@ impl TeamLock {
 }
 impl Drop for TeamLock {
     fn drop(&mut self) {
-        let _ = fs::remove_file(self.0.join(".owner"));
-        let _ = fs::remove_dir(&self.0);
+        if fs::read_to_string(self.path.join(".owner")).is_ok_and(|value| value == self.marker) {
+            let _ = fs::remove_file(self.path.join(".owner"));
+            let _ = fs::remove_dir(&self.path);
+        }
     }
 }
 
@@ -232,4 +283,33 @@ pub(crate) fn validate(db: &Connection) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn native_marked_orphan_is_recovered_using_the_kernel_owner_lock() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join(".config.lock");
+        fs::create_dir(&path).unwrap();
+        fs::write(
+            path.join(".owner"),
+            format!("agent-mail-registry-v1 {}", uuid::Uuid::new_v4()),
+        )
+        .unwrap();
+        let lock = TeamLock::acquire(temp.path()).unwrap();
+        let competing = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(temp.path().join(".agent-mail-registry.lock"))
+            .unwrap();
+        assert!(matches!(
+            competing.try_lock(),
+            Err(fs::TryLockError::WouldBlock)
+        ));
+        drop(lock);
+        assert!(!path.exists());
+        assert!(competing.try_lock().is_ok());
+    }
 }

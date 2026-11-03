@@ -27,6 +27,8 @@ struct RemoteMessage {
     id: String,
     server_seq: String,
     envelope: Envelope,
+    #[serde(default)]
+    server_received_at: String,
 }
 #[derive(Deserialize, Serialize)]
 struct Projection {
@@ -38,6 +40,7 @@ struct Projection {
 #[derive(Serialize)]
 pub struct Outcome {
     uploaded: usize,
+    roster_uploaded: usize,
     downloaded: usize,
     transport_cursor: String,
     has_more: bool,
@@ -277,6 +280,7 @@ impl Context {
 }
 
 mod events;
+mod roster;
 pub mod runtime;
 
 pub async fn once(root: &Path, team: &str) -> Result<Outcome> {
@@ -300,7 +304,8 @@ async fn cycle(root: &Path, team: &str) -> Result<Outcome> {
     let floor = caps["min_available_seq"]
         .as_str()
         .ok_or("missing retention floor")?;
-    if sequence(&ctx.cursor()?)? < sequence(floor)? {
+    let minimum = sequence(&ctx.cursor()?)?.min(sequence(&ctx.roster_cursor()?)?);
+    if minimum < sequence(floor)? {
         return Err(
             "remote history was retained past the local cursor; explicit gap recovery is required"
                 .into(),
@@ -311,6 +316,18 @@ async fn cycle(root: &Path, team: &str) -> Result<Outcome> {
         .and_then(|x| x.parse::<usize>().ok())
         .filter(|n| *n > 0 && *n <= 1_048_576)
         .ok_or("invalid remote blob limit")?;
+    let roster_pending = ctx.reserve_roster(max_blob)?;
+    let roster_uploaded = roster_pending.len();
+    for candidate in roster_pending {
+        let response = ctx
+            .request(
+                Method::POST,
+                "v1/messages",
+                Some(json!({"messages":[candidate]})),
+            )
+            .await?;
+        ctx.ack_roster(&candidate, &response)?;
+    }
     // Reserve before POST; every retry reuses the exact stored ID and envelope.
     let pending = ctx.reserve(max_blob)?;
     let mut uploaded = 0;
@@ -325,8 +342,10 @@ async fn cycle(root: &Path, team: &str) -> Result<Outcome> {
         ctx.ack(&candidate, &response)?;
         uploaded += 1;
     }
-    let after = ctx.cursor()?;
-    sequence(&after)?;
+    let expected = ctx.cursor()?;
+    let after = sequence(&expected)?
+        .min(sequence(&ctx.roster_cursor()?)?)
+        .to_string();
     let page = ctx
         .request(
             Method::GET,
@@ -334,12 +353,13 @@ async fn cycle(root: &Path, team: &str) -> Result<Outcome> {
             None,
         )
         .await?;
-    let downloaded = ctx.apply(&after, &page)?;
+    let downloaded = ctx.apply(&expected, &after, &page)?;
     Ok(Outcome {
         uploaded,
+        roster_uploaded,
         downloaded,
         transport_cursor: ctx.cursor()?,
-        has_more: page["has_more"] == true || uploaded == 10,
+        has_more: page["has_more"] == true || uploaded == 10 || roster_uploaded == 10,
     })
 }
 
@@ -400,20 +420,20 @@ fn valid_name(name: &str) -> bool {
             .chars()
             .any(|c| c.is_control() || "./\\\"[]".contains(c))
 }
-fn projection(envelope: &Envelope) -> Result<Projection> {
+fn plain(envelope: &Envelope) -> Result<Value> {
     if envelope.v != 1 || envelope.cipher != "none" || envelope.key_id.is_some() {
         return Err("unsupported encrypted or future envelope; cursor preserved".into());
     }
     let bytes = STANDARD
         .decode(&envelope.blob)
         .map_err(|_| "invalid envelope base64")?;
-    if STANDARD.encode(&bytes) != envelope.blob {
+    if bytes.is_empty() || bytes.len() > 1_048_576 || STANDARD.encode(&bytes) != envelope.blob {
         return Err("noncanonical envelope base64".into());
     }
-    let raw: Value = serde_json::from_slice(&bytes).map_err(|_| "invalid message projection")?;
-    if raw.get("kind").is_some() {
-        return Err("roster mutation needs native roster support; cursor preserved".into());
-    }
+    serde_json::from_slice(&bytes).map_err(|_| "invalid message projection".into())
+}
+fn projection(envelope: &Envelope) -> Result<Projection> {
+    let raw = plain(envelope)?;
     let p: Projection =
         serde_json::from_value(raw).map_err(|_| "invalid message projection fields")?;
     if p.body.is_empty()
@@ -517,22 +537,7 @@ impl Context {
         Ok(candidates)
     }
     fn ack(&mut self, candidate: &Candidate, response: &Value) -> Result<()> {
-        let acks = response["acks"]
-            .as_array()
-            .filter(|a| a.len() == 1)
-            .ok_or("invalid upload acknowledgment")?;
-        let ack = &acks[0];
-        if ack["id"] != candidate.id
-            || !matches!(ack["disposition"].as_str(), Some("stored" | "duplicate"))
-        {
-            return Err("upload acknowledgment does not match reservation".into());
-        }
-        let seq = ack["server_seq"]
-            .as_str()
-            .ok_or("ack omitted server sequence")?;
-        if sequence(seq)? == 0 {
-            return Err("ack sequence must be positive".into());
-        }
+        let seq = ack_sequence(candidate, response)?;
         let _guard = self.guard()?;
         let tx = sql(self
             .store
@@ -545,20 +550,25 @@ impl Context {
         }
         sql(tx.commit())
     }
-    fn apply(&mut self, expected: &str, page: &Value) -> Result<usize> {
+    fn apply(&mut self, expected: &str, after: &str, page: &Value) -> Result<usize> {
         let messages: Vec<RemoteMessage> = serde_json::from_value(page["messages"].clone())
             .map_err(|_| "invalid remote message page")?;
         if messages.len() > 10 {
             return Err("remote exceeded requested page size".into());
         }
         let next = page["next_after"].as_str().ok_or("missing next cursor")?;
-        let mut last = sequence(expected)?;
+        let mut last = sequence(after)?;
         for message in &messages {
             let seq = sequence(&message.server_seq)?;
             if seq <= last || !uuid(&message.id, 4) {
                 return Err("remote message IDs or sequence ordering invalid".into());
             }
-            projection(&message.envelope)?;
+            let value = plain(&message.envelope)?;
+            if value.get("kind").is_some() {
+                roster::validate(&value)?;
+            } else {
+                projection(&message.envelope)?;
+            }
             last = seq;
         }
         if sequence(next)? != last
@@ -568,6 +578,7 @@ impl Context {
             return Err("inconsistent remote page cursor".into());
         }
         let _guard = self.guard()?;
+        let mut roster = roster::Roster::load(self)?;
         let tx = sql(self
             .store
             .db
@@ -586,6 +597,22 @@ impl Context {
                 params![self.server,self.remote,message.server_seq,message.id,self.team,self.generation], |r|r.get(0)))?;
             if corrupt {
                 return Err("conflicting sync state; explicit recovery required".into());
+            }
+            let value = plain(&message.envelope)?;
+            if value.get("kind").is_some() {
+                let prior=sql(tx.query_row("SELECT envelope_v,cipher,key_id,blob,server_seq FROM sync_quarantine WHERE server_instance_id=?1 AND remote_team_id=?2 AND protocol_version=1 AND wire_id=?3",params![self.server,self.remote,message.id],|r|Ok((Envelope{v:r.get(0)?,cipher:r.get(1)?,key_id:r.get(2)?,blob:r.get(3)?},r.get::<_,String>(4)?))).optional())?;
+                if let Some((envelope, seq)) = prior
+                    && (envelope != message.envelope || seq != message.server_seq)
+                {
+                    return Err("roster envelope conflicts with stored state".into());
+                }
+                let conflicting:bool=sql(tx.query_row("SELECT EXISTS(SELECT 1 FROM sync_messages WHERE server_instance_id=?1 AND remote_team_id=?2 AND protocol_version=1 AND (wire_id=?3 OR server_seq=?4)) OR EXISTS(SELECT 1 FROM sync_quarantine WHERE server_instance_id=?1 AND remote_team_id=?2 AND protocol_version=1 AND server_seq=?4 AND wire_id<>?3)",params![self.server,self.remote,message.id,message.server_seq],|r|r.get(0)))?;
+                if conflicting {
+                    return Err("roster sequence conflicts with existing sync state".into());
+                }
+                roster.apply(&value, &message.server_seq, &message.id)?;
+                sql(tx.execute("INSERT OR IGNORE INTO sync_quarantine(local_team,server_instance_id,remote_team_id,protocol_version,driver_generation,server_seq,wire_id,server_received_at,envelope_v,cipher,key_id,blob,status) VALUES (?1,?2,?3,1,?4,?5,?6,?7,?8,?9,?10,?11,'imported')",params![self.team,self.server,self.remote,self.generation,message.server_seq,message.id,message.server_received_at,message.envelope.v,message.envelope.cipher,message.envelope.key_id,message.envelope.blob]))?;
+                continue;
             }
             let existing=sql(tx.query_row("SELECT envelope_v,cipher,key_id,blob,server_seq FROM sync_messages WHERE server_instance_id=?1 AND remote_team_id=?2 AND protocol_version=1 AND wire_id=?3",
                 params![self.server,self.remote,message.id],|r|Ok((Envelope {v:r.get(0)?,cipher:r.get(1)?,key_id:r.get(2)?,blob:r.get(3)?},r.get::<_,Option<String>>(4)?))).optional())?;
@@ -617,6 +644,9 @@ impl Context {
               VALUES (?1,?2,?3,1,?4,?5,?6,?7,?8)",params![self.team,self.server,self.remote,self.generation,p.to_agent,local_id,message.id,message.server_seq]))?;
             imported += 1;
         }
+        roster.advance(next)?;
+        roster.save()?;
+        let next = sequence(expected)?.max(sequence(next)?).to_string();
         sql(tx.execute("UPDATE sync_bindings SET transport_cursor=?1 WHERE local_team=?2 AND server_instance_id=?3 AND remote_team_id=?4 AND protocol_version=1 AND driver_generation=?5",params![next,self.team,self.server,self.remote,self.generation]))?;
         sql(tx.commit())?;
         Ok(imported)
@@ -625,3 +655,23 @@ impl Context {
 
 #[cfg(test)]
 mod tests;
+
+fn ack_sequence(candidate: &Candidate, response: &Value) -> Result<String> {
+    let acks = response["acks"]
+        .as_array()
+        .filter(|a| a.len() == 1)
+        .ok_or("invalid upload acknowledgment")?;
+    let ack = &acks[0];
+    if ack["id"] != candidate.id
+        || !matches!(ack["disposition"].as_str(), Some("stored" | "duplicate"))
+    {
+        return Err("upload acknowledgment does not match reservation".into());
+    }
+    let seq = ack["server_seq"]
+        .as_str()
+        .ok_or("ack omitted server sequence")?;
+    if sequence(seq)? == 0 {
+        return Err("ack sequence must be positive".into());
+    }
+    Ok(seq.to_owned())
+}

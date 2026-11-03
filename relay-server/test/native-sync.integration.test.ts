@@ -63,6 +63,7 @@ function run(file: string, args: string[], env: NodeJS.ProcessEnv, input=""): Pr
       config.remote_binding={endpoint:address,server_instance_id:remote.server_instance_id,remote_team_id:team,protocol_version:1,cipher_profile:"none",disconnected_at:null};
       for(const root of [a,b]) await writeFile(join(root,"teams/contract/config.json"),JSON.stringify(config));
       const cli=resolve(process.env.AGENT_MAIL_TEST_BIN!);
+      const privateMessages = "WHERE NOT (convert_from(decode(blob,'base64'),'UTF8')::jsonb ? 'kind')";
       const invoke=(root:string,args:string[],input="")=>run(cli,["--agmsg-dir",root,...args],env,input);
       const body="中文 private mail\nquotes: ' \" @receiver";
       await invoke(a,["agmsg","send","contract","--from","sender","--to","receiver","--stdin"],body);
@@ -78,7 +79,7 @@ function run(file: string, args: string[], env: NodeJS.ProcessEnv, input=""): Pr
       const takeover=JSON.parse(await invoke(a,["sync","once","contract"]));
       expect(takeover.uploaded).toBe(1);
       expect(takeover.downloaded).toBe(0);
-      expect((await pool.query("SELECT id::text FROM messages")).rows).toEqual([{id}]);
+      expect((await pool.query(`SELECT id::text FROM messages ${privateMessages}`)).rows).toEqual([{id}]);
       expect(JSON.parse(await invoke(b,["sync","once","contract"])).downloaded).toBe(1);
       expect(JSON.parse(await invoke(b,["sync","once","contract"])).downloaded).toBe(0);
       expect(JSON.parse(await invoke(b,["sync","once","contract"])).uploaded).toBe(0);
@@ -88,7 +89,8 @@ function run(file: string, args: string[], env: NodeJS.ProcessEnv, input=""): Pr
       expect(history).toHaveLength(1);
       expect(history[0].body).toBe(body);
       expect(await invoke(b,["agmsg","inbox","contract","receiver"])).not.toContain("1 new message");
-      expect((await pool.query("SELECT count(*) FROM messages")).rows[0].count).toBe("1");
+      expect((await pool.query(`SELECT count(*) FROM messages ${privateMessages}`)).rows[0].count).toBe("1");
+      const baselineCursor=(await pool.query("SELECT current_seq::text FROM teams WHERE team_id=$1",[team])).rows[0].current_seq;
       // A 60-second fallback must not delay a native send: its IPC hint should
       // trigger upload while the process remains otherwise idle.
       resident=spawn(cli,["--agmsg-dir",a,"sync","run","contract","--interval","60"],{env,stdio:"ignore"});
@@ -102,33 +104,34 @@ function run(file: string, args: string[], env: NodeJS.ProcessEnv, input=""): Pr
       receiving=spawn(cli,["--agmsg-dir",b,"sync","run","contract","--interval","60"],{env,stdio:"ignore"});
       await waitFor(async()=>{
         const status=JSON.parse(await invoke(b,["sync","status","contract"]));
-        return status.remote_events==="connected" && status.phase==="idle" && status.transport_cursor==="1";
+        return status.remote_events==="connected" && status.phase==="idle" && status.transport_cursor===baselineCursor;
       });
       await new Promise(resolve=>setTimeout(resolve,200));
 
       await invoke(a,["agmsg","send","contract","--from","sender","--to","receiver","--stdin"],"IPC wake test");
-      await waitFor(async()=>(await pool!.query("SELECT count(*) FROM messages")).rows[0].count==="2");
+      await waitFor(async()=>(await pool!.query(`SELECT count(*) FROM messages ${privateMessages}`)).rows[0].count==="2");
       expect(JSON.parse(await invoke(a,["sync","status","contract"])).running).toBe(true);
       await waitFor(async()=>JSON.parse(await invoke(b,["sync","status","contract"])).downloaded>=1);
+      const caughtUpCursor=(await pool.query("SELECT current_seq::text FROM teams WHERE team_id=$1",[team])).rows[0].current_seq;
       refuseEvents=true;
       const listeners=await admin.query("SELECT pid FROM pg_stat_activity WHERE application_name=$1",[`${schema}:agent-mail-events`]);
       expect(listeners.rows).toHaveLength(1);
       await admin.query("SELECT pg_terminate_backend($1)",[listeners.rows[0].pid]);
       await waitFor(async()=>{
         const status=JSON.parse(await invoke(b,["sync","status","contract"]));
-        return status.remote_events==="fallback" && status.phase==="idle" && status.transport_cursor==="2";
+        return status.remote_events==="fallback" && status.phase==="idle" && status.transport_cursor===caughtUpCursor;
       });
       await new Promise(resolve=>setTimeout(resolve,200));
       await invoke(a,["agmsg","send","contract","--from","sender","--to","receiver","--stdin"],"mail while SSE is disconnected");
-      await waitFor(async()=>(await pool!.query("SELECT count(*) FROM messages")).rows[0].count==="3");
+      await waitFor(async()=>(await pool!.query(`SELECT count(*) FROM messages ${privateMessages}`)).rows[0].count==="3");
       refuseEvents=false;
       await waitFor(async()=>JSON.parse(await invoke(b,["sync","status","contract"])).downloaded>=2);
       refuseUploads=true;
       await invoke(a,["agmsg","send","contract","--from","sender","--to","receiver","--stdin"],"retry keeps the outbox");
       await waitFor(async()=>JSON.parse(await invoke(a,["sync","status","contract"])).phase==="retrying");
-      expect((await pool.query("SELECT count(*) FROM messages")).rows[0].count).toBe("3");
+      expect((await pool.query(`SELECT count(*) FROM messages ${privateMessages}`)).rows[0].count).toBe("3");
       refuseUploads=false;
-      await waitFor(async()=>(await pool!.query("SELECT count(*) FROM messages")).rows[0].count==="4");
+      await waitFor(async()=>(await pool!.query(`SELECT count(*) FROM messages ${privateMessages}`)).rows[0].count==="4");
       // Killing the process must release the OS lock even without cleanup.
       resident.kill("SIGKILL");
       await new Promise<void>(resolve=>resident!.once("close",()=>resolve()));
@@ -139,12 +142,27 @@ function run(file: string, args: string[], env: NodeJS.ProcessEnv, input=""): Pr
       await waitFor(async()=>JSON.parse(await invoke(a,["sync","status","contract"])).running);
       // The upstream shell has no native IPC hook. Recovery still finds its write.
       await run("bash",[join(a,"scripts/send.sh"),"contract","sender","receiver","message without IPC"],env);
-      await waitFor(async()=>(await pool!.query("SELECT count(*) FROM messages")).rows[0].count==="5");
+      await waitFor(async()=>(await pool!.query(`SELECT count(*) FROM messages ${privateMessages}`)).rows[0].count==="5");
       resident.kill("SIGTERM");
       const exit=await new Promise<number|null>(resolve=>resident!.once("close",code=>resolve(code)));
       expect(exit).toBe(0);resident=undefined;
       expect(JSON.parse(await invoke(a,["sync","status","contract"])).running).toBe(false);
-
+      // Real upstream membership commands must cross the native transport,
+      // retaining receiver-local registrations and remaining silent as mail.
+      const members=async(root:string)=>(await invoke(root,["agmsg","members","contract"])).trim().split("\n").filter(Boolean).map(line=>JSON.parse(line));
+      await run("bash",[join(a,"scripts/join.sh"),"contract","newcomer","codex",a],env);
+      await invoke(a,["sync","once","contract"]);
+      await waitFor(async()=>(await members(b)).some(member=>member.name==="newcomer"));
+      await run("bash",[join(a,"scripts/rename.sh"),"contract","newcomer","renamed"],env);
+      await invoke(a,["sync","once","contract"]);
+      await waitFor(async()=>(await members(b)).some(member=>member.name==="renamed"));
+      const localBefore=JSON.parse(await readFile(join(b,"teams/contract/config.json"),"utf8")).agents.receiver;
+      await run("bash",[join(a,"scripts/leave.sh"),"contract","renamed"],env);
+      await invoke(a,["sync","once","contract"]);
+      await waitFor(async()=>!(await members(b)).some(member=>member.name==="renamed"));
+      const localAfter=JSON.parse(await readFile(join(b,"teams/contract/config.json"),"utf8")).agents.receiver;
+      expect(localAfter).toEqual(localBefore);
+      expect((await pool.query(`SELECT count(*) FROM messages ${privateMessages}`)).rows[0].count).toBe("5");
 
     } finally {
       if(receiving && receiving.exitCode===null && receiving.signalCode===null) {receiving.kill("SIGKILL");await new Promise<void>(resolve=>receiving!.once("close",()=>resolve()));}
