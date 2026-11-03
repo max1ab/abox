@@ -121,6 +121,17 @@ impl Context {
         Self::open_for_adoption(root, team, false)
     }
     fn open_for_adoption(root: &Path, team: &str, allow_official: bool) -> Result<Self> {
+        if let Some(connection_root) =
+            std::env::var_os("AGMSG_SYNC_CONNECTION_DIR").filter(|p| !p.is_empty())
+        {
+            let selected = crate::store::native_path(Path::new(&connection_root))
+                .canonicalize()
+                .map_err(|e| format!("cannot validate AGMSG_SYNC_CONNECTION_DIR: {e}"))?;
+            let expected = root.canonicalize().map_err(|e| e.to_string())?;
+            if selected != expected {
+                return Err("AGMSG_SYNC_CONNECTION_DIR points to another installation; use its --agmsg-dir or clear the override before native sync".into());
+            }
+        }
         let mut store = crate::store::open(root, team)?;
         // Do not run two engines over one binding. The official stop command
         // removes this pidfile; a leftover file requires explicit recovery.

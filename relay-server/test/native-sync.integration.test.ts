@@ -53,7 +53,7 @@ function run(file: string, args: string[], env: NodeJS.ProcessEnv, input=""): Pr
       await cp(join(process.env.AGENT_MAIL_TEST_AGMSG_DIR!,"scripts"),join(a,"scripts"),{recursive:true});
       await cp(join(process.env.AGENT_MAIL_TEST_AGMSG_DIR!,"VERSION"),join(a,"VERSION"));
       const env={...process.env,AGMSG_CONFIG:join(temp,"global-config.json"),AGMSG_STORAGE_DRIVER:"sqlite",AGMSG_RESOLVE_PROJECT:"0",AGMSG_SELF_NAME:"off",AGMSG_SELF_RENAME:"off"};
-      for(const key of ["AGMSG_STORAGE_PATH","AGMSG_PLUGIN_DIRS","SKILL_DIR","CODEX_THREAD_ID","CODEX_SESSION_ID","AGENT_MAIL_BASH"]) delete env[key as keyof typeof env];
+      for(const key of ["AGMSG_STORAGE_PATH","AGMSG_PLUGIN_DIRS","AGMSG_SYNC_CONNECTION_DIR","SKILL_DIR","CODEX_THREAD_ID","CODEX_SESSION_ID","AGENT_MAIL_BASH"]) delete env[key as keyof typeof env];
       for(const agent of ["sender","receiver"]) await run("bash",[join(a,"scripts/join.sh"),"contract",agent,"codex",a],env);
       await cp(a,b,{recursive:true});
       for(const root of [a,b]) await run("bash",["-c",'source "$1/scripts/lib/storage.sh"; agmsg_storage_load; storage_init contract',"fixture",root],env);
@@ -226,7 +226,7 @@ function run(file: string, args: string[], env: NodeJS.ProcessEnv, input=""): Pr
     } finally {
       if(managed) {
         const env={...process.env};
-        for(const key of ["AGMSG_STORAGE_PATH","AGMSG_PLUGIN_DIRS","SKILL_DIR","CODEX_THREAD_ID","CODEX_SESSION_ID","AGENT_MAIL_BASH"]) delete env[key];
+        for(const key of ["AGMSG_STORAGE_PATH","AGMSG_PLUGIN_DIRS","AGMSG_SYNC_CONNECTION_DIR","SKILL_DIR","CODEX_THREAD_ID","CODEX_SESSION_ID","AGENT_MAIL_BASH"]) delete env[key];
         await run(resolve(process.env.AGENT_MAIL_TEST_BIN!),["--agmsg-dir",join(temp,"a"),"sync","disable","contract"],env).catch(()=>{});
       }
       if(receiving && receiving.exitCode===null && receiving.signalCode===null) {receiving.kill("SIGKILL");await new Promise<void>(resolve=>receiving!.once("close",()=>resolve()));}

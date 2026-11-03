@@ -11,6 +11,7 @@ pub fn clean_environment(command: &mut Command) {
         "AGMSG_CONFIG",
         "AGENT_MAIL_BASH",
         "AGMSG_PLUGIN_DIRS",
+        "AGMSG_SYNC_CONNECTION_DIR",
         "SKILL_DIR",
         "CODEX_THREAD_ID",
         "CODEX_SESSION_ID",

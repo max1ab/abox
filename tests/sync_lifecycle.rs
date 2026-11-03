@@ -131,6 +131,21 @@ fn native_hooks_restart_the_selected_engine_and_preserve_upstream_integrity() {
         r#"source "$1/scripts/lib/install-manifest.sh"; agmsg_install_manifest_write "$1/scripts" "$1/run/install-manifest.json" v1.7.0 lifecycle-test 1 1"#,
     ));
     let original = manifest(root);
+    // Official lifecycle helpers honor this override, while native storage is
+    // rooted at --agmsg-dir. Refuse before stopping a different installation.
+    let foreign = tempfile::tempdir().unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_agent-mail"));
+    common::clean_environment(&mut command);
+    let rejected = command
+        .arg("--agmsg-dir")
+        .arg(root)
+        .args(["sync", "enable", "contract", "--no-login"])
+        .env("AGMSG_SYNC_CONNECTION_DIR", foreign.path())
+        .output()
+        .unwrap();
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("points to another installation"));
+    assert_eq!(manifest(root), original);
     // Rejection is before source, manifest or engine selection changes.
     config["remote_binding"]["cipher_profile"] = json!("age-v1");
     fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
