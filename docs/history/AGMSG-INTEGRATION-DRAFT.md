@@ -1,6 +1,6 @@
 # Agent Mail 接入 agmsg 的设计草案
 
-2026-11-02。讨论范围仅为 agent-mail，不包含 todo-cli 的任务调度。此文保留接入前的设计建议；后续已采用 agmsg 并开始实现。当前完成情况和实际身份寻址方式见 [README 的进度与命令说明](README.md)，不应把本草案的所有建议视为已实现。
+2026-11-02。讨论范围仅为 agent-mail，不包含 todo-cli 的任务调度。此文保留接入前的设计建议；后续已采用 agmsg 并开始实现。当前完成情况和实际身份寻址方式见 [README 的进度与命令说明](../../README.md)，不应把本草案的所有建议视为已实现。
 
 ## 建议
 
@@ -60,4 +60,4 @@ Rust 侧集中一个 agmsg 适配模块，通过子进程参数调用脚本，�
 
 先确认是否接受多组件部署及整条私信链路交给 agmsg，再明确主动注销的语义；30 天自动清理已暂缓。确认后实现最薄的身份映射与静默留言板，不先重写邮件服务。接入真实第二台机器时验证同步、空闲收信与回复，作为部署验收。
 
-依据：README.md 的现有需求、experiments/agmsg-test/RESULTS.md 的本机证据，以及固定 v1.7.0 源码中的 scripts/api.sh、scripts/send.sh、scripts/team.sh、scripts/leave.sh 和远程同步文档。
+依据：README.md 的现有需求、agmsg v1.7.0 的本机收信与回信实测，以及固定 v1.7.0 源码中的 scripts/api.sh、scripts/send.sh、scripts/team.sh、scripts/leave.sh 和远程同步文档。

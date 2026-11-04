@@ -1,6 +1,6 @@
 # Agent 通信组件复用调查
 
-实测更新（2026-10-30）：Agent Relay 的本机闲置投递尚未通过，不能标为可直接采用；Relaycast 的离线队列、频道历史和静音/@mention 行为已验证。见 [实测记录](experiments/relay-test/RESULTS.md)。下文是实测前的候选评估。
+实测更新（2026-10-30）：Agent Relay 的本机闲置投递尚未通过，不能标为可直接采用；Relaycast 的离线队列、频道历史和静音/@mention 行为已验证。下文是实测前的候选评估。
 
 核查日期：2026-10-30。通过 GitHub REST API 读取仓库元数据、默认分支最近最多 100 条提交、最近 3 次 release，并核对官方 README、许可证和自托管文档。日期按 API UTC 日期列示，star 是本次快照。未安装或运行候选，不将 README 宣称视为端到端实测结果。
 

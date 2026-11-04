@@ -2,7 +2,7 @@
 
 核查日期：2026-10-30。AnySearch 检索，GitHub 官方 API 核查 star、默认分支最近 30 条提交、最近 2 个 release；读取官方 README、正式 tag 文档及部分适配代码。本轮未安装或实测候选。提交日期采用 UTC 日。
 
-后续实测更新（2026-11-02）：agmsg v1.7.0 的 Claude Code、Codex CLI 本机空闲原会话收信和自动回信已分别通过；Codex 重测连续两轮约 17 秒回信。以下保留调研时点资料；最新验证边界见 [实测记录](../experiments/agmsg-test/RESULTS.md)，不扩大为桌面 App 或跨机器验证。
+后续实测更新（2026-11-02）：agmsg v1.7.0 的 Claude Code、Codex CLI 本机空闲原会话收信和自动回信已分别通过；Codex 重测连续两轮约 17 秒回信。本轮实测范围为本机 CLI 原会话。以下保留调研时点资料。
 
 ## 重点候选
 

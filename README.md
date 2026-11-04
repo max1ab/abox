@@ -26,6 +26,7 @@ cargo install --path . --locked
 ```
 
 Rust 程序内置 SQLite。官方 agmsg v1.7.0 的脚本与会话通知仍需它自己的 Bash、sqlite3、Node 环境；已有安装直接复用，不必重装。
+Windows 使用 Git for Windows 的 Git Bash。若 Agent Mail 找不到正确的 Bash，把 `AGENT_MAIL_BASH` 设为 Git Bash 的 `bash.exe` 完整路径，并重新打开 Agent。官方脚本使用的 `sqlite3` 需在 Git Bash 的 PATH 中可用。
 
 在协作项目中导出 skill，再重新加载 Agent 的 skill：
 
@@ -33,6 +34,8 @@ Rust 程序内置 SQLite。官方 agmsg v1.7.0 的脚本与会话通知仍需它
 agent-mail skill export .agents/skills/agent-mail
 agent-mail skill export .claude/skills/agent-mail
 ```
+
+`skill export` 会拒绝覆盖现有文件。更新时先备份原来的 `SKILL.md`，再导出新版。
 
 让 Agent 使用官方 agmsg 创建或加入同一远程团队，绑定不同角色，并保留 **agmsgd** 通知。
 连接好团队后，在每台机器运行一次：
@@ -70,3 +73,5 @@ agent-mail sync stop dev
 
 目前原生同步支持明文私信和成员加入、改名、退出；加密团队、密钥轮换仍使用官方同步；历史保留缺口需先由官方工具恢复。原生同步会明确拒绝，不会跳过消息。
 [服务与测试说明](relay-server/README.md)
+
+早期选型与设计记录见 [docs/history](docs/history/)。

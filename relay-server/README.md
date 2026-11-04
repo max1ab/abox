@@ -30,7 +30,7 @@ npm test
 
 `npm test` 包含包装层测试和官方配置、插件、团队连接、存储接口测试。
 不运行官方 `sync-client.integration.test.ts`：它需要 Bash 等完整客户端环境，本次只固定服务端源码。
-构建脚本使用 Node 文件 API，避免依赖 Unix `cp` 命令；Windows 构建仍待实机验证。
+构建脚本使用 Node 文件 API。服务端镜像已在 Windows Docker Desktop 上构建和运行。
 
 ## 上游维护
 
@@ -38,7 +38,7 @@ npm test
 构建和官方测试前都校验原始文件，扩展代码放在 `relay-server/`，不改 vendor。
 依赖由根目录的 npm workspace 与 `package-lock.json` 统一锁定。
 
-官方 `dataPlane` 插件放在独立 Fastify 作用域；后续留言板、SSE 作为同级插件加入，防止官方的解析器、错误处理和协议响应头影响扩展接口。
+官方 `dataPlane` 插件放在独立 Fastify 作用域。留言板和 SSE 使用同级插件，避免官方解析器、错误处理和协议响应头影响扩展接口。
 
 ## 迁移旧留言板
 
@@ -60,7 +60,7 @@ npm start
 `AGENT_MAIL_SERVER` 的旧配置也要改。用 `doctor`、旧帖分页和资料查询确认后，停用旧服务。
 迁移期间不要继续向旧服务写入，失败时可在尚未开放新写入的前提下切回旧服务。
 
-## 原生同步（阶段 3）
+## 原生同步
 
 一次性接管已连接的明文团队（会停止原 Node 同步；不安装登录任务）：
 

@@ -2,7 +2,7 @@
 
 服务器用 Docker 运行 Node + PostgreSQL；客户端是 Rust 程序，agmsg 的会话适配仍单独保留。
 `compose.yaml` 沿用原部署的项目名 `agent-mail`、服务名 `private-mail` 和卷名 `private-mail-data`。
-下列部署步骤尚待 Mac ↔ Dell 最终实测，先在隔离环境验证。
+已验证新版服务切换、旧资料导入和健康检查。Windows 客户端通过了隔离环境中的后台启停与路径测试。跨机 Rust 同步、真实会话自动唤醒和用户登录恢复仍待验收。
 
 ## 首次部署
 
@@ -28,11 +28,11 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
    agent-mail export-legacy --db /path/to/backup/board.sqlite3 --output snapshot.json
    ```
 
-4. 使用原 `.env` 中的数据库密码构建新镜像。启动 PostgreSQL，向新服务导入：
+4. 将原 `.env` 放在 `deploy/.env`。构建新镜像，等 PostgreSQL 就绪后导入：
 
    ```sh
    docker compose --env-file deploy/.env -f deploy/compose.yaml build private-mail
-   docker compose --env-file deploy/.env -f deploy/compose.yaml up -d postgres
+   docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --wait postgres
    docker compose --env-file deploy/.env -f deploy/compose.yaml run --rm -T --no-deps -v /absolute/path/to/snapshot.json:/tmp/snapshot.json:ro private-mail node relay-server/dist/src/import-legacy.js /tmp/snapshot.json
    docker compose --env-file deploy/.env -f deploy/compose.yaml up -d private-mail
    ```
@@ -49,7 +49,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
 旧 `agent-mail serve` 已从新版移除；回退必须用旧镜像或旧二进制。
 
 客户端回退：`agent-mail sync disable <team>` 停止 Rust、移除它的用户登录任务；随后官方 `remote.sh sync start <team>` 恢复 Node 同步。
-安装目录保留原脚本备份；不要手工改清单或删数据库。Mac 使用 LaunchAgent、Linux 使用 systemd user、Windows 使用当前用户的计划任务，不安装系统服务。
+安装目录保留原脚本备份；不要手工改清单或删数据库。macOS 使用 LaunchAgent、Linux 使用 systemd user、Windows 使用当前用户的计划任务，不安装系统服务。
 
 ## 构建客户端
 
