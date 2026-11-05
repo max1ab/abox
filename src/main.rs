@@ -2,9 +2,11 @@ mod agmsg;
 mod board;
 mod cli;
 mod client;
+mod connect;
 mod daemon;
 mod directory;
 mod doctor;
+mod hooks;
 mod import;
 mod mailbox;
 mod native_send;
@@ -68,6 +70,22 @@ fn main() -> ExitCode {
 
 async fn run(cli: Cli) -> Result<ExitCode, String> {
     match cli.command {
+        Command::Hook { command } => {
+            let local = agmsg::Agmsg::for_setup(cli.agmsg_dir)?;
+            match command {
+                cli::HookCommand::Install {
+                    agent_type,
+                    config,
+                    replace_agmsg,
+                } => hooks::install(local.root(), agent_type, config, replace_agmsg, false)?,
+                cli::HookCommand::Uninstall { agent_type, config } => {
+                    hooks::install(local.root(), agent_type, config, false, true)?
+                }
+                cli::HookCommand::Run { agent_type } => hooks::run(local.root(), agent_type)?,
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+
         Command::Daemon { command } => {
             let local = agmsg::Agmsg::new(cli.agmsg_dir)?;
             match command {
@@ -108,6 +126,12 @@ async fn run(cli: Cli) -> Result<ExitCode, String> {
             Ok(ExitCode::SUCCESS)
         }
 
+        Command::Team {
+            command: TeamCommand::Connect { team },
+        } => {
+            connect::run(agmsg::Agmsg::new(cli.agmsg_dir)?.root(), &team, &cli.server).await?;
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Team {
             command: TeamCommand::Import { team },
         } => {
@@ -152,21 +176,18 @@ async fn run(cli: Cli) -> Result<ExitCode, String> {
             let agmsg = agmsg::Agmsg::new(cli.agmsg_dir)?;
             match command {
                 SyncCommand::Enable { team, no_login } => {
-                    sync::bridge::enable(&agmsg, &team, no_login).await?;
-                    client::print_jsonl([sync::runtime::status(agmsg.root(), &team)?])?;
+                    sync::select(agmsg.root(), &team, true)?;
+                    client::print_jsonl([daemon::start(agmsg.root(), no_login).await?])?;
                 }
-                SyncCommand::Disable { team } => {
-                    sync::bridge::disable(agmsg.root(), &team).await?;
-                }
-                SyncCommand::Start { team } => {
-                    client::print_jsonl([sync::runtime::start(agmsg.root(), &team)?])?;
-                }
-                SyncCommand::Stop { team } => {
-                    let _control = sync::runtime::ControlLock::acquire(agmsg.root(), &team)?;
-                    sync::service::pause(agmsg.root(), &team)?;
+                SyncCommand::Disable { team } | SyncCommand::Stop { team } => {
+                    sync::select(agmsg.root(), &team, false)?;
+                    sync::service::remove(agmsg.root(), &team)?;
                     sync::runtime::stop(agmsg.root(), &team).await?;
                 }
-                SyncCommand::Launch { team } => sync::runtime::launch(agmsg.root(), &team)?,
+                SyncCommand::Start { team } => {
+                    sync::select(agmsg.root(), &team, true)?;
+                    client::print_jsonl([daemon::start(agmsg.root(), false).await?])?;
+                }
                 SyncCommand::Once { team } => {
                     client::print_jsonl([sync::once(agmsg.root(), &team).await?])?;
                 }

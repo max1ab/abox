@@ -276,7 +276,6 @@ impl Context {
     }
 }
 
-pub mod bridge;
 mod events;
 mod read_state;
 mod roster;
@@ -733,4 +732,19 @@ fn ack_sequence(candidate: &Candidate, response: &Value) -> Result<String> {
         return Err("ack sequence must be positive".into());
     }
     Ok(seq.to_owned())
+}
+
+/// Pause/resume a team inside the shared daemon; never hands off to Node.
+pub(crate) fn select(root: &Path, team: &str, enabled: bool) -> Result<()> {
+    crate::store::team_name(team)?;
+    let dir = root.join("teams").join(team);
+    let _lock = TeamLock::acquire(&dir)?;
+    let mut cfg = crate::registry::config(root, team)?;
+    if enabled && (cfg["import_pending"] == true || !cfg["remote_binding"].is_object()) {
+        return Err("import/connect this team before enabling synchronization".into());
+    }
+    cfg["sync_enabled"] = json!(enabled);
+    crate::registry::atomic(&dir.join("config.json"), cfg.to_string().as_bytes())?;
+    crate::daemon::wake(root);
+    Ok(())
 }

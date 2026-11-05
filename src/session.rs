@@ -224,8 +224,9 @@ pub fn bind(
     if read(&path)?.get("session") != Some(&session) {
         return Err("session binding was not recorded".into());
     }
+    crate::daemon::wake(root);
     println!(
-        "Bound {team}/{name} to {session}. Notification delivery is configured separately through agmsgd."
+        "Bound {team}/{name} to {session}. Start agent-mail daemon and install the native hooks for ongoing delivery."
     );
     Ok(())
 }

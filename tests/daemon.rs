@@ -138,3 +138,98 @@ fn old_agmsgd_ownership_blocks_a_second_notification_engine() {
         "on"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn a_killed_daemon_restarts_without_resubmitting_an_accepted_reminder() {
+    use std::os::unix::fs::PermissionsExt;
+    struct Child(std::process::Child);
+    impl Drop for Child {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let t = tempfile::tempdir().unwrap();
+    let r = t.path();
+    fs::write(r.join("VERSION"), "1.7.0\n").unwrap();
+    fs::write(r.join("fake-codex"),"#!/bin/sh\nprintf 'called\\n' >> \"$CODEX_HOME/calls\"\nprintf 'Queued message 00000000-0000-4000-8000-000000000001 for thread %s.\\n' \"$3\"\n").unwrap();
+    fs::set_permissions(r.join("fake-codex"), fs::Permissions::from_mode(0o700)).unwrap();
+    for name in ["sender", "receiver"] {
+        ok(cli(
+            r,
+            &["join", "dev", "--create", "--name", name, "--type", "codex"],
+        ));
+    }
+    ok(cli(
+        r,
+        &[
+            "bind",
+            "dev",
+            "--name",
+            "receiver",
+            "--type",
+            "codex",
+            "--session-id",
+            "019a4000-0000-7000-8000-000000000001",
+        ],
+    ));
+    let mut c = Command::new(env!("CARGO_BIN_EXE_agent-mail"));
+    common::clean_environment(&mut c);
+    let mut child = Child(
+        c.env("AGENT_MAIL_CODEX", r.join("fake-codex"))
+            .env("CODEX_HOME", r)
+            .arg("--data-dir")
+            .arg(r)
+            .args(["daemon", "run"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let _cleanup = Stop(r);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while status(r)["running"] != true && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(30));
+    }
+    assert_eq!(status(r)["running"], true);
+    fs::write(r.join("body"), "one task").unwrap();
+    ok(cli(
+        r,
+        &[
+            "agmsg",
+            "send",
+            "dev",
+            "--from",
+            "sender",
+            "--to",
+            "receiver",
+            "--body-file",
+            "body",
+        ],
+    ));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        if ok(cli(r, &["notify", "status"]))
+            .lines()
+            .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+            .any(|v| v["state"] == "accepted")
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(30));
+    }
+    assert_eq!(
+        fs::read_to_string(r.join("calls")).unwrap().lines().count(),
+        1
+    );
+    child.0.kill().unwrap();
+    child.0.wait().unwrap();
+    ok(cli(r, &["daemon", "start", "--no-login"]));
+    std::thread::sleep(Duration::from_millis(2200));
+    assert_eq!(
+        fs::read_to_string(r.join("calls")).unwrap().lines().count(),
+        1
+    );
+    assert_eq!(status(r)["running"], true);
+}

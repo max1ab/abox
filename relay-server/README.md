@@ -14,7 +14,7 @@ npm run build
 设置 `DATABASE_URL` 指向 PostgreSQL 17，然后在仓库根目录执行 `npm start`。
 默认监听 `127.0.0.1:8787`；支持官方的 `HOST`、`PORT`、`LOG_LEVEL`、`AGMSG_RETENTION_MAX_LIVE_MESSAGES` 配置。
 
-启动时执行官方数据库迁移；退出时关闭 HTTP 服务和数据库连接池。旧 Rust 留言板的数据需按下面步骤一次性导入。
+启动时执行数据库迁移；退出时关闭 HTTP 服务和数据库连接池。
 官方参考接口没有身份认证，请使用回环地址或可信网络。
 
 ## 验证
@@ -42,33 +42,25 @@ npm test
 
 ## 原生同步
 
-一次性接管已连接的明文团队（会停止原 Node 同步；不安装登录任务）：
+客户端的注册、绑定、收发、同步与提醒已由 Rust 实现。中转继续使用固定的官方协议数据面。
 
 ```sh
-agent-mail sync enable <team> --no-login
-```
-
-读取官方已有的远端绑定、SQLite 映射和游标；每轮最多上传 10 条私信和 10 条成员变更，拉取 10 条记录；常驻进程连续补齐积压。
-接管完成后，每轮发信/同步不调用 Bash、Node 或 sqlite3 可执行文件；首次切换复用官方的停止与通知 daemon 恢复逻辑。
-支持明文私信和成员加入、改名、退出，沿用官方成员日志；遇到加密、
-历史保留缺口或冲突时明确报错，保留收取游标，不能把这类团队直接迁为原生同步。
-`agmsgd` 的会话通知和注册/收件仍由官方提供，不要同时运行两个同步进程。
-
-原生同步的完整联测需同时设置 `TEST_DATABASE_URL`、`AGENT_MAIL_TEST_BIN`、`AGENT_MAIL_TEST_AGMSG_DIR`（官方安装根目录）。测试仅复制脚本到临时目录，不读写实际邮箱。
-
-## 常驻同步
-
-```sh
-agent-mail sync run <team>
+agent-mail daemon start
+agent-mail daemon status
 agent-mail sync status <team>
 ```
 
-`run` 在前台运行，Ctrl+C 停止。同一团队只允许一个原生同步操作运行。
-已启用后台同步时，先 `sync stop <team>` 再运行前台调试或 `sync once <team>`。
-正式安装使用 `sync enable <team>` 添加当前用户登录任务；`sync start` 恢复，`sync disable` 停止并交回官方启动入口。
-原生发信提交后通过私有本机 IPC 立即触发上传；默认每 60 秒补查一次，覆盖脚本写入或通知遗漏。
-网络错误会退避重试，`status` 实际探测进程并显示最近成功时间、游标和错误；它不代表 agent 会话在线。
-运行目录位于 agmsg 安装下的 `run/native-sync/`，无需手动删除崩溃遗留锁。
+一个后台管理全部已连接团队和本机通知。各团队同步独立退避，远程离线不会阻止本地邮件提醒。
+原生发信提交后通过私有本机 IPC 立即触发上传；SSE 加速收信，每 60 秒补查兜底。
+同步沿用已有 SQLite 映射、成员日志和游标，每轮最多上传 10 条私信和 10 条成员变更，拉取 10 条记录，再连续补齐积压。
+加密团队、历史保留缺口或冲突会明确报错；这些错误不代表团队内没有消息。
+
+`sync stop/start <team>` 单独暂停或恢复一个团队，不再交回 Node；`daemon stop` 停止整个后台并移除登录任务。
+调试单团队可在暂停后台该团队后使用 `sync run <team>` 或 `sync once <team>`，同一团队不能运行两个同步操作。
+后台日志位于数据目录 `run/daemon/daemon.log`；团队同步记录仍保存在 `run/native-sync/`。
+
+旧安装切换前须停用 agmsgd 和旧启动钩子；新的客户端不调用官方客户端脚本。
+Rust 协议与通知测试使用临时目录、模拟中转与模拟 Agent 接收端；数据库集成测试是否运行仍取决于上面的 `TEST_DATABASE_URL` 设置。
 
 ## 实时提示
 

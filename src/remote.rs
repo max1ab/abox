@@ -15,7 +15,11 @@ pub(crate) fn client() -> Result<Client, String> {
 pub(crate) async fn json(request: RequestBuilder) -> Result<Value, String> {
     // Endpoint paths can contain private capability tokens. Never expose them
     // through reqwest's error strings or redirect to a different server.
-    let mut response = request.send().await.map_err(|_| "remote request failed")?;
+    let response = request.send().await.map_err(|_| "remote request failed")?;
+    response_json(response).await
+}
+
+pub(crate) async fn response_json(mut response: reqwest::Response) -> Result<Value, String> {
     if !response.status().is_success() {
         return Err(format!(
             "remote returned HTTP {}; no cursor was advanced",

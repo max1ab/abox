@@ -273,6 +273,8 @@ fn bypass(target: &Target) -> bool {
     read().unwrap_or(false)
 }
 fn wire(target: &Target, token: &str, message: &str, nonce: &str) -> Vec<u8> {
+    // Keep the established native-wire sender label for compatibility; this
+    // is an on-wire string, not a dependency on the external agmsgd process.
     let mode = if bypass(target) {
         " from-name=\"agmsgd\" from-mode=\"bypass\""
     } else {

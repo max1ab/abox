@@ -1,8 +1,8 @@
 # 部署与构建
 
-服务器用 Docker 运行 Node + PostgreSQL；客户端是 Rust 程序，agmsg 的会话适配仍单独保留。
+服务器用 Docker 运行 Node + PostgreSQL；客户端是单个 Rust 程序，内置 SQLite、同步与会话通知。
 `compose.yaml` 沿用原部署的项目名 `agent-mail`、服务名 `private-mail` 和卷名 `private-mail-data`。
-已验证新版服务切换、旧资料导入和健康检查。Windows 客户端通过了隔离环境中的后台启停与路径测试。跨机 Rust 同步、真实会话自动唤醒和用户登录恢复仍待验收。
+本轮在临时目录验证原生接入、聚合收件、单后台启停和离线团队隔离。真实会话唤醒、Windows 原生管道和各系统登录恢复仍待目标环境验收。
 
 ## 首次部署
 
@@ -25,8 +25,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
 
 更新后检查健康接口、私信收发、留言板和通讯录。数据库表结构由服务启动时初始化。
 
-客户端运行 `agent-mail sync enable <team>` 接管已连接明文团队的同步，并配置用户登录后恢复。
-如需恢复官方同步，运行 `agent-mail sync disable <team>`，再用官方 `remote.sh sync start <team>` 启动。
+客户端运行 `agent-mail daemon start`，一个后台负责全部已连接团队及本地通知。`daemon stop` 停止后台并移除用户登录任务；`sync stop/start <team>` 单独暂停或恢复团队。首次替换旧安装须先停用 agmsgd 和旧钩子，避免双引擎。
 
 ## 构建客户端
 
@@ -37,4 +36,4 @@ Docker 交叉构建 Windows（不安装到宿主机）：
 docker buildx build --file deploy/client.Dockerfile --target windows-artifact --output type=local,dest=dist/windows .
 ```
 
-Linux 输出使用 `--target linux-artifact`。Windows 的会话通知仍需官方 agmsg 的运行环境，`agent-mail.exe` 本身不调用 sqlite3 或 Node 进行发信/同步。
+Linux 输出使用 `--target linux-artifact`。客户端不调用 Bash、外置 sqlite3 或 Node。Windows 原生通知和系统登录恢复需在目标机器上另行实测；交叉编译本身不代表真实会话验收。

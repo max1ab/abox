@@ -141,8 +141,14 @@ pub(crate) async fn once(root: &Path) -> Result<Report> {
             )?;
             continue;
         }
+        let root_text = root.to_str().ok_or("data path is not UTF-8")?;
+        let root_arg = if cfg!(windows) {
+            format!("'{}'", root_text.replace('\'', "''"))
+        } else {
+            format!("'{}'", root_text.replace('\'', "'\"'\"'"))
+        };
         let message = format!(
-            "[agent-mail:{nonce}] New messages are waiting. Read all mailboxes for this session with: agent-mail inbox --type {} --session-id {} --notification {nonce}",
+            "[agent-mail:{nonce}] New messages are waiting. Read all mailboxes for this session with: agent-mail --data-dir {root_arg} inbox --type {} --session-id {} --notification {nonce}",
             group.target.agent_type(),
             group.target.session()
         );

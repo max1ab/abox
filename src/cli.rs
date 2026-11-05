@@ -8,8 +8,13 @@ use clap::{Parser, Subcommand, ValueEnum};
     about = "Agent Mail — agmsg messaging and a silent bulletin board"
 )]
 pub struct Cli {
-    /// Local data root; defaults to ~/.agents/skills/agmsg during the native transition.
-    #[arg(long, global = true, env = "AGENT_MAIL_AGMSG_DIR")]
+    /// Local data root; defaults to ~/.agent-mail, reusing an existing agmsg data root.
+    #[arg(
+        long = "data-dir",
+        alias = "agmsg-dir",
+        global = true,
+        env = "AGENT_MAIL_DATA_DIR"
+    )]
     pub agmsg_dir: Option<PathBuf>,
     /// Relay server for the shared board and profiles.
     #[arg(
@@ -25,6 +30,11 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Install or run native lifecycle hooks; never changes hook trust settings.
+    Hook {
+        #[command(subcommand)]
+        command: HookCommand,
+    },
     /// Run one background process for local notifications and all connected teams.
     Daemon {
         #[command(subcommand)]
@@ -125,6 +135,8 @@ impl AgentType {
 pub enum TeamCommand {
     /// Download an existing team from --server; never create a same-named team.
     Import { team: String },
+    /// Register a locally created plaintext team on --server.
+    Connect { team: String },
 }
 
 #[derive(Subcommand)]
@@ -132,18 +144,16 @@ pub enum SyncCommand {
     /// Select Rust synchronization for this team and restart it at user login.
     Enable {
         team: String,
-        /// Use hook-driven restart only; do not install a user login service.
+        /// Start detached without installing a user login service.
         #[arg(long)]
         no_login: bool,
     },
-    /// Stop native sync and return hook startup to the official engine.
+    /// Pause this team inside the shared Rust daemon.
     Disable { team: String },
     /// Start the selected native engine in the background, or resume its service.
     Start { team: String },
-    /// Stop native sync; a later agent hook or start can resume it.
+    /// Pause this team until sync start or enable.
     Stop { team: String },
-    #[command(hide = true)]
-    Launch { team: String },
     /// Upload and download one page; stop official remote sync first.
     Once { team: String },
     /// Keep mail synchronized; native sends notify this process immediately.
@@ -260,4 +270,27 @@ pub enum DaemonCommand {
     Run,
     #[command(hide = true)]
     Launch,
+}
+
+#[derive(Subcommand)]
+pub enum HookCommand {
+    Install {
+        #[arg(long = "type", value_enum)]
+        agent_type: AgentType,
+        #[arg(long)]
+        config: Option<PathBuf>,
+        #[arg(long)]
+        replace_agmsg: bool,
+    },
+    Uninstall {
+        #[arg(long = "type", value_enum)]
+        agent_type: AgentType,
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
+    #[command(hide = true)]
+    Run {
+        #[arg(long = "type", value_enum)]
+        agent_type: AgentType,
+    },
 }

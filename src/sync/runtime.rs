@@ -400,78 +400,6 @@ pub(crate) async fn shutdown_signal() -> &'static str {
     "Ctrl+C"
 }
 
-/// Spawn without inheriting agent/SSH output pipes. The child, not its PID or
-/// this return value, proves readiness by publishing its authenticated IPC.
-pub fn start(root: &Path, team: &str) -> Result<serde_json::Value> {
-    let _control = ControlLock::acquire(root, team)?;
-    let dir = directory(root, team)?;
-    if !dir.join("engine").is_file() {
-        return Err("select native sync first with: agent-mail sync enable TEAM".into());
-    }
-    if status(root, team)?.running {
-        return Ok(serde_json::json!({"state":"running"}));
-    }
-    if super::service::configured(root, team)? {
-        super::service::resume(root, team)?;
-        return wait_ready(root, team);
-    }
-    prepare_directory(&dir)?;
-    spawn_background(root, team)?;
-    wait_ready(root, team)
-}
-#[cfg(windows)]
-fn spawn_background(root: &Path, team: &str) -> Result<()> {
-    super::service::spawn_detached(root, team)
-}
-#[cfg(not(windows))]
-fn spawn_background(root: &Path, team: &str) -> Result<()> {
-    let dir = directory(root, team)?;
-    let log = private_options()
-        .create(true)
-        .append(true)
-        .open(dir.join("engine.log"))
-        .map_err(|e| e.to_string())?;
-    let mut command =
-        std::process::Command::new(std::env::current_exe().map_err(|e| e.to_string())?);
-    command
-        .args(["--agmsg-dir"])
-        .arg(root)
-        .args(["sync", "run", team]);
-    command
-        .stdin(std::process::Stdio::null())
-        .stdout(log.try_clone().map_err(|e| e.to_string())?)
-        .stderr(log);
-    if let Ok(env) =
-        read_json::<std::collections::BTreeMap<String, String>>(&dir.join("environment.json"))
-    {
-        for (name, value) in env {
-            if super::bridge::ENVIRONMENT.contains(&name.as_str()) {
-                command.env(name, value);
-            }
-        }
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
-    command
-        .spawn()
-        .map_err(|e| format!("cannot start native sync: {e}"))?;
-    Ok(())
-}
-
-fn wait_ready(root: &Path, team: &str) -> Result<serde_json::Value> {
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
-    while std::time::Instant::now() < deadline {
-        if status(root, team)?.running {
-            return Ok(serde_json::json!({"state":"running"}));
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    Err("native sync did not become ready; inspect run/native-sync/TEAM/engine.log and retry sync start".into())
-}
-
 pub async fn stop(root: &Path, team: &str) -> Result<()> {
     let dir = directory(root, team)?;
     if !dir.exists() {
@@ -500,46 +428,6 @@ pub async fn stop(root: &Path, team: &str) -> Result<()> {
         }
     }
     Err("native sync did not release its engine lock; no process was killed by PID".into())
-}
-
-/// Service managers supervise this waiting launcher and its child. Storage
-/// environment is restored on the child without mutating a threaded process.
-pub fn launch(root: &Path, team: &str) -> Result<()> {
-    let dir = directory(root, team)?;
-    prepare_directory(&dir)?;
-    let log = private_options()
-        .create(true)
-        .append(true)
-        .open(dir.join("engine.log"))
-        .map_err(|e| e.to_string())?;
-    let mut command =
-        std::process::Command::new(std::env::current_exe().map_err(|e| e.to_string())?);
-    command
-        .arg("--agmsg-dir")
-        .arg(root)
-        .args(["sync", "run", team]);
-    command
-        .stdin(std::process::Stdio::null())
-        .stdout(log.try_clone().map_err(|e| e.to_string())?)
-        .stderr(log);
-    let values =
-        read_json::<std::collections::BTreeMap<String, String>>(&dir.join("environment.json"))?;
-    for (name, value) in values {
-        if super::bridge::ENVIRONMENT.contains(&name.as_str()) {
-            command.env(name, value);
-        }
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000);
-    }
-    let status = command.status().map_err(|e| e.to_string())?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err("native sync exited; inspect its engine.log".into())
-    }
 }
 
 #[cfg(test)]

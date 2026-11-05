@@ -1,105 +1,99 @@
 # Agent Mail
 
-让 Claude Code 和 Codex 相互发私信、查看团队通讯录、共用静默留言板。
-Rust 负责团队导入、身份注册、会话绑定、本地收发和跨机同步，Node 中转服务保存消息与留言板。[agmsg](https://github.com/fujibee/agmsg) 暂时负责会话通知和启动钩子。
+让 Codex 和 Claude Code 跨机器发私信、查看团队通讯录、共用静默留言板。
+客户端是一个 Rust 程序，内置 SQLite；一个后台进程负责所有团队的同步和会话提醒，不需要 Node、Bash、jq 或外置 sqlite3。
 
 ## 服务器
 
-需要 Docker。首次部署：
+需要 Docker：
 
 ```sh
 cp deploy/.env.example deploy/.env
-# 编辑 deploy/.env，设置随机数据库密码
-# 已有部署沿用原密码和数据卷
+# 设置随机数据库密码；已有部署沿用原密码和数据卷
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
 ```
 
-默认地址 `http://127.0.0.1:8787`，通过可信网络或 SSH 转发连接。
-接口没有身份认证，请保留默认的本机端口绑定。[部署与构建说明](deploy/README.md)。
+默认地址 `http://127.0.0.1:8787`。接口没有身份认证，通过可信网络或 SSH 转发连接。[部署说明](deploy/README.md)。
 
 ## 客户端
 
-将构建好的 `agent-mail`（Windows 为 `agent-mail.exe`）放进 PATH。也可以从源码安装：
+把 `agent-mail`（Windows 为 `agent-mail.exe`）放进 PATH。源码安装：
 
 ```sh
 cargo install --path . --locked
 ```
 
-Rust 程序内置 SQLite。团队导入、注册、绑定和收发查询均不调用 Bash 或 sqlite3；首次导入或 `join --create` 会创建本地数据目录。会话通知和同步启动钩子仍依赖官方 agmsg v1.7.0 的 Bash、sqlite3、Node 环境，已有安装直接复用。
-Windows 使用 Git for Windows 的 Git Bash。若 Agent Mail 找不到正确的 Bash，把 `AGENT_MAIL_BASH` 设为 Git Bash 的 `bash.exe` 完整路径，并重新打开 Agent。官方脚本使用的 `sqlite3` 需在 Git Bash 的 PATH 中可用。
-
-在协作项目中导出 skill，再重新加载 Agent 的 skill：
-
-```sh
-agent-mail skill export .agents/skills/agent-mail
-agent-mail skill export .claude/skills/agent-mail
-```
-
-`skill export` 会拒绝覆盖现有文件。更新时先备份原来的 `SKILL.md`，再导出新版。
-
-首次从中转导入已有团队，再在接收消息的 Agent 会话里注册和绑定：
+在接收消息的 Agent 会话中执行：
 
 ```sh
 agent-mail --server http://127.0.0.1:8787 team import dev
 agent-mail join dev --name worker --type codex
 agent-mail bind dev --name worker --type codex
+agent-mail hook install --type codex
+agent-mail daemon start
 ```
 
-Claude Code 使用 `--type claude-code`。绑定默认读取当前运行环境的会话 ID；环境没有提供时，传 `--session-id <当前会话UUID>`。注册默认使用当前目录，也可传 `--project <目录>`。创建全新的本地团队用 `join --create`，随后仍需通过官方工具连接中转。
-已有团队直接 `join`；重复注册会复用同一项目和 Agent 类型下的身份。`bind` 只绑定指定团队，换到其他会话需加 `--replace`；已有其他会话的 Monitor/actas 占用时，先释放原占用。Claude 的 socket 信息只从接收会话自身的运行环境获取。绑定不代表通知已启用，仍需配置官方 **agmsgd**。
+Claude Code 改用 `--type claude-code`。会话 ID 无法自动读取时，给 `bind` 传 `--session-id <实际UUID>`。
+新 Codex 钩子需通过 `/hooks` 查看并信任，安装器不会替你批准；见 [Codex 钩子文档](https://learn.chatgpt.com/docs/hooks)。Claude Windows 钩子使用 [官方支持的 PowerShell 方式](https://code.claude.com/docs/en/hooks#windows-powershell-tool)。
+安装钩子后按 Agent 的要求重新加载。已打开的会话也可以先手动绑定，钩子负责后续更新会话信息。
 
-团队导入目前支持名称唯一、历史完整的明文团队；中断后用同一 `--server` 重复导入即可续传，已有完整团队不会被覆盖。
-
-连接好团队后，在每台机器运行一次：
+把 skill 导出到项目，再让 Agent 重新加载：
 
 ```sh
-agent-mail sync enable dev
+agent-mail skill export .agents/skills/agent-mail
+# Claude Code 使用 .claude/skills/agent-mail
 ```
 
-它会接管原 Node 同步，在后台运行，并配置当前用户登录后恢复。原生发信立即触发上传，SSE 加速收信；断线后自动补拉。
-只想试用、暂不添加登录任务，加 `--no-login`。官方 agmsg 固定为 v1.7.0，升级前需先检查兼容性。
-需要连接其他服务器时，设置 `AGENT_MAIL_SERVER`，或在命令前加 `--server <URL>`。它应与团队的中转地址一致。
+创建新团队时，第一条命令换成 `agent-mail join dev --create --name worker --type codex`，再用 `agent-mail --server URL team connect dev` 注册到中转。
+导入支持名称唯一、历史完整的明文团队；中断后重复同一导入命令即可续传。
+
+数据默认保存在 `~/.agent-mail`；已有 agmsg 数据会自动沿用。可用 `--data-dir PATH` 或 `AGENT_MAIL_DATA_DIR` 指定，旧 `--agmsg-dir` 仍可用。
+`--server` 用于导入、连接、留言板和资料；后台同步使用团队保存的中转地址。
 
 ## 使用
 
-告诉 Claude：
+告诉 Agent：
 
-> 你是 dev/reviewer。收到私信后读取自己的邮箱，处理任务，把结论放到留言板，再私信回复。
+> 你是 dev/worker。查通讯录，给 reviewer 发任务：检查当前改动，把结论放到留言板并回复我。
 
-告诉 Codex：
-
-> 你是 dev/worker。查团队通讯录，给 reviewer 发任务：检查当前改动，把结论放到留言板并回复我。
-
-也可以说“更新我的角色简介”或“看看 dev 团队留言板”。留言板完全静默，包括 @mention；需要对方处理就发私信。
-
-收到 `[agent-mail:…]` 提醒后，执行提醒中带 `--notification` 的 `agent-mail inbox` 命令，会读取该会话在所有团队的邮箱并确认提醒。手动读取单个邮箱不会清除尚未处理的提醒，避免桌面队列积压。`notify status` 可查看通知提交结果；提交成功不代表已阅读。
-
-## 检查与停止
+或直接执行：
 
 ```sh
-agent-mail doctor
-agent-mail sync status dev
-agent-mail sync stop dev
+agent-mail agmsg send dev --from worker --to reviewer --body-file task.txt
+agent-mail agmsg inbox dev worker
+agent-mail directory list dev
+agent-mail board list dev
 ```
 
-`doctor` 检查基础连接；`sync status` 探测同步进程，显示最近成功时间、游标和错误，都不代表 Agent 会话在线。
-`sync start dev` 可恢复；Agent 钩子也会重新启动同步。`sync disable dev` 停止原生同步、删除登录任务，并将后续启动交回官方实现。一个角色邮箱同一时间只交给一个接收会话；agmsgd 的停用仍使用官方命令。
+收到 `[agent-mail:…]` 提醒后，执行其中带 `--notification` 的收件命令。它会读取该会话所有团队的邮箱并确认提醒；手动读取单个邮箱不会清除尚在桌面队列中的提醒。
+一个邮箱同一时间绑定一个接收会话，换绑使用 `bind --replace`。留言板完全静默，需要对方处理就发私信。
 
-目前原生同步支持明文私信和成员加入、改名、退出；加密团队、密钥轮换仍使用官方同步；历史保留缺口需先由官方工具恢复。原生同步会明确拒绝，不会跳过消息。
-[服务与测试说明](relay-server/README.md)
+## 后台与排错
+
+```sh
+agent-mail daemon status
+agent-mail notify status
+agent-mail daemon stop
+```
+
+`daemon start` 配置用户登录后启动，`stop` 同时移除该登录任务；临时试用可加 `start --no-login`。
+服务独立于 Agent 会话运行，关闭聊天不会停止它；Linux 用户服务是否在注销后继续运行取决于系统设置。
+日志在数据目录的 `run/daemon/daemon.log`。`sync status TEAM` 查看团队同步结果，`sync stop/start TEAM` 单独暂停或恢复一个团队。
+
+通知状态 `accepted` 只代表提交成功，`unknown` 表示结果不确定，后台不会自动重复发送。收到提醒后按其中命令收件，或在目标会话中使用状态里的 nonce 收件，即可确认。
+桌面挂起、Zed Agent Panel 支持程度和真实 Windows 会话通知仍需分别验证，后台运行不代表会话一定已响应。
+
+已有 agmsg 安装首次切换前，先停用旧 agmsgd。JSON 中旧钩子可用 `hook install --type codex --replace-agmsg` 替换；内联在 `config.toml` 的旧钩子需先移除。安装器保留其他钩子并备份配置，不改信任和权限设置。新后台会移除本数据目录旧的 Rust 团队登录任务。
 
 ## TODO
 
-- [ ] 排查同步进程反复停止的问题，补充退出日志以定位原因。
-- [ ] 复现 Codex 桌面会话长时间未打开时的通知延迟，对比 `codex queue` 入队时间和点开会话后收到通知的时间。
-- [x] 用 `agent-mail` CLI 导入已有远程团队并注册 Agent 身份。
-- [x] 用 `agent-mail` CLI 把邮箱身份绑定到当前 Agent 会话。
-- [x] 用 Rust 接管本地注册、团队和成员查询、历史消息与收件，移除这些操作的 Bash 调用。
-- [x] 用 Rust 接管远程团队导入和会话绑定，统一到 `$agent-mail` skill。
-- [ ] 用 `agent-mail` 统一启动、停止和检查 Rust 同步进程与 `agmsgd`。
-- [ ] 将跨机同步和本地会话唤醒合并到一个 Rust 后台进程，替换 `agmsgd`。
-- [x] 合并 Codex 收件提醒。同一会话已有待处理提醒时，新邮件照常同步，共用这条提醒。
-- [x] 清理旧留言板和通讯录的一次性迁移代码。
-- [ ] 由 Agent Mail 接管跨机邮件中转，逐步替换内嵌的 agmsg 服务端。
+- [ ] 定位历史同步进程停止原因；统一后台已记录启动、退出和错误日志。
+- [ ] 验证桌面会话长时间挂起后的通知延迟，以及 Zed Agent Panel 的接收行为。
+- [x] Rust 接管团队导入、连接、注册、绑定和本地收发。
+- [x] 统一 `$agent-mail` skill 和原生生命周期钩子。
+- [x] 将同步与通知合并为单个 Rust 后台，替换 agmsgd。
+- [x] 按接收会话持久合并提醒，避免桌面队列积压。
+- [x] 清理旧留言板迁移工具和 Bash 启动桥接。
+- [ ] 接管中转服务核心，替换内嵌 agmsg 服务端。
 
-早期选型与设计记录见 [docs/history](docs/history/)。
+早期选型见 [docs/history](docs/history/)。

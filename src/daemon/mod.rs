@@ -111,6 +111,8 @@ pub(crate) fn status(root: &Path) -> Result<Value> {
     state["running"] = json!(running);
     if !running {
         state["phase"] = json!("stopped");
+    } else if state["phase"] == "stopped" {
+        state["phase"] = json!("starting");
     }
     state["supervised"] = json!(service::configured(root)?);
     Ok(state)
@@ -149,7 +151,19 @@ pub(crate) async fn start(root: &Path, no_login: bool) -> Result<Value> {
     let _control = lock(root, "control.lock")?;
     check_legacy(root)?;
     if status(root)?["running"] == true {
-        return status(root);
+        if no_login || service::configured(root)? {
+            return status(root);
+        }
+        // Switching a detached process to OS supervision needs a real handoff,
+        // otherwise the manager would repeatedly launch an excluded duplicate.
+        send(root, "stop")?;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while status(root)?["running"] == true {
+            if Instant::now() >= deadline {
+                return Err("detached daemon did not stop for supervisor handoff".into());
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     }
     let mut environment: BTreeMap<String, String> = BTreeMap::new();
     for name in ENVIRONMENT {
