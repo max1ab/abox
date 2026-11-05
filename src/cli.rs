@@ -25,6 +25,20 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Read every mailbox bound to the receiving session, then acknowledge its reminder.
+    Inbox {
+        #[arg(long = "type", value_enum)]
+        agent_type: AgentType,
+        #[arg(long)]
+        session_id: Option<String>,
+        #[arg(long)]
+        notification: Option<String>,
+    },
+    /// Inspect or run native notification delivery without starting a daemon.
+    Notify {
+        #[command(subcommand)]
+        command: NotifyCommand,
+    },
     /// Import an existing remote team.
     Team {
         #[command(subcommand)]
@@ -219,4 +233,10 @@ pub enum AgmsgCommand {
     },
     /// Read unread messages and mark them read; this does not acknowledge task completion.
     Inbox { team: String, agent: String },
+}
+
+#[derive(Subcommand)]
+pub enum NotifyCommand {
+    Once,
+    Status,
 }

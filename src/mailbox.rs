@@ -123,6 +123,15 @@ pub fn history(
         .map_err(|e| e.to_string())
 }
 
+pub(crate) fn unread_count(db: &Connection, team: &str, agent: &str) -> Result<i64, String> {
+    db.query_row("SELECT (SELECT count(*) FROM events e WHERE e.type='message_sent' AND e.team=?1 AND e.to_agent=?2
+      AND e.seq>COALESCE((SELECT local_position FROM read_cursors WHERE team=?1 AND agent=?2),0)
+      AND NOT EXISTS(SELECT 1 FROM events r WHERE r.type='message_read' AND r.team=?1 AND r.agent=?2 AND r.msg_id=e.id))
+      + (SELECT count(*) FROM messages m WHERE m.team=?1 AND m.to_agent=?2 AND m.read_at IS NULL
+      AND NOT EXISTS(SELECT 1 FROM events r WHERE r.type='message_read' AND r.team=?1 AND r.agent=?2 AND r.msg_id=CAST(m.id AS TEXT))
+      AND NOT EXISTS(SELECT 1 FROM events e WHERE e.legacy_id=m.id AND e.seq>0))",params![team,agent],|r|r.get(0)).map_err(|e|e.to_string())
+}
+
 pub fn unread(db: &Connection, team: &str, agent: &str) -> Result<Vec<Message>, String> {
     let mut statement = db.prepare("SELECT id,team,from_agent,to_agent,body,at FROM (
         SELECT e.id,e.team,e.from_agent,e.to_agent,e.body,e.at,1 AS src,e.seq AS ord FROM events e

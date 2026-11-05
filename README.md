@@ -72,6 +72,8 @@ agent-mail sync enable dev
 
 也可以说“更新我的角色简介”或“看看 dev 团队留言板”。留言板完全静默，包括 @mention；需要对方处理就发私信。
 
+收到 `[agent-mail:…]` 提醒后，执行提醒中带 `--notification` 的 `agent-mail inbox` 命令，会读取该会话在所有团队的邮箱并确认提醒。手动读取单个邮箱不会清除尚未处理的提醒，避免桌面队列积压。`notify status` 可查看通知提交结果；提交成功不代表已阅读。
+
 ## 检查与停止
 
 ```sh
@@ -96,7 +98,7 @@ agent-mail sync stop dev
 - [x] 用 Rust 接管远程团队导入和会话绑定，统一到 `$agent-mail` skill。
 - [ ] 用 `agent-mail` 统一启动、停止和检查 Rust 同步进程与 `agmsgd`。
 - [ ] 将跨机同步和本地会话唤醒合并到一个 Rust 后台进程，替换 `agmsgd`。
-- [ ] 合并 Codex 收件提醒。同一会话已有待处理提醒时，新邮件照常同步，共用这条提醒。
+- [x] 合并 Codex 收件提醒。同一会话已有待处理提醒时，新邮件照常同步，共用这条提醒。
 - [x] 清理旧留言板和通讯录的一次性迁移代码。
 - [ ] 由 Agent Mail 接管跨机邮件中转，逐步替换内嵌的 agmsg 服务端。
 

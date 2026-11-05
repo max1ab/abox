@@ -7,7 +7,6 @@ mod doctor;
 mod import;
 mod mailbox;
 mod native_send;
-#[allow(dead_code, unused_imports)] // Adapter integration follows in the next commit.
 mod notify;
 mod registry;
 mod remote;
@@ -38,6 +37,32 @@ async fn main() -> ExitCode {
 
 async fn run(cli: Cli) -> Result<ExitCode, String> {
     match cli.command {
+        Command::Inbox {
+            agent_type,
+            session_id,
+            notification,
+        } => {
+            notify::inbox(
+                agmsg::Agmsg::new(cli.agmsg_dir)?.root(),
+                agent_type,
+                session_id,
+                notification,
+            )?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Notify { command } => {
+            let local = agmsg::Agmsg::new(cli.agmsg_dir)?;
+            match command {
+                cli::NotifyCommand::Once => {
+                    client::print_jsonl([notify::once(local.root()).await?])?
+                }
+                cli::NotifyCommand::Status => {
+                    client::print_jsonl(notify::State::open(local.root())?.list()?)?
+                }
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+
         Command::Team {
             command: TeamCommand::Import { team },
         } => {
