@@ -40,6 +40,57 @@ fn windows_shell_path(path: &str) -> String {
 }
 
 impl Agmsg {
+    pub(crate) fn capture(
+        &self,
+        script: &str,
+        args: &[OsString],
+        environment: &[(&str, &str)],
+    ) -> Result<String, String> {
+        let path = self.scripts.join(script);
+        let output = Command::new(&self.bash)
+            .arg(shell_path(&path))
+            .args(args)
+            .envs(environment.iter().copied())
+            .stdin(std::process::Stdio::null())
+            .output()
+            .map_err(|e| format!("cannot run {}: {e}", path.display()))?;
+        use std::io::Write;
+        std::io::stderr()
+            .write_all(&output.stderr)
+            .map_err(|e| e.to_string())?;
+        let stdout = String::from_utf8(output.stdout).map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            return Err(format!(
+                "{script} failed ({}): {}",
+                output.status,
+                stdout.trim()
+            ));
+        }
+        Ok(stdout)
+    }
+
+    pub(crate) fn recorded_session(&self, team: &str, name: &str) -> Result<String, String> {
+        let output = Command::new(&self.bash)
+            .args([
+                "-c",
+                r#"
+export SKILL_DIR="$1"
+source "$1/scripts/lib/role-session.sh" || exit 1
+agmsg_role_session_load "$2" "$3"
+printf '%s' "$AGMSG_ROLE_SESSION_UUID"
+"#,
+                "agent-mail-read-session",
+            ])
+            .arg(shell_path(&self.root))
+            .args([team, name])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            return Err("cannot verify the upstream session record".into());
+        }
+        String::from_utf8(output.stdout).map_err(|e| e.to_string())
+    }
+
     pub(crate) async fn resume_daemon(&self, operation: u64) -> Result<(), String> {
         let mut command = tokio::process::Command::new(&self.bash);
         command

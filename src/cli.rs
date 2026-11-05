@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Parser)]
 #[command(
@@ -25,6 +25,37 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Import an existing remote team.
+    Team {
+        #[command(subcommand)]
+        command: TeamCommand,
+    },
+    /// Register an identity in a local team; import remote teams first.
+    Join {
+        team: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long = "type", value_enum)]
+        agent_type: AgentType,
+        #[arg(long, default_value = ".")]
+        project: PathBuf,
+        /// Explicitly create a new local team when it does not exist.
+        #[arg(long)]
+        create: bool,
+    },
+    /// Bind a registered identity to this session; notification setup is separate.
+    Bind {
+        team: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long = "type", value_enum)]
+        agent_type: AgentType,
+        #[arg(long, default_value = ".")]
+        project: PathBuf,
+        /// Current session UUID; otherwise use the runtime's session environment.
+        #[arg(long)]
+        session_id: Option<String>,
+    },
     /// Native remote synchronization over an existing agmsg binding.
     Sync {
         #[command(subcommand)]
@@ -60,6 +91,26 @@ pub enum Command {
         #[command(subcommand)]
         command: DirectoryCommand,
     },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+pub enum AgentType {
+    Codex,
+    ClaudeCode,
+}
+impl AgentType {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Codex => "codex",
+            Self::ClaudeCode => "claude-code",
+        }
+    }
+}
+
+#[derive(Subcommand)]
+pub enum TeamCommand {
+    /// Download an existing team from --server; never create a same-named team.
+    Import { team: String },
 }
 
 #[derive(Subcommand)]

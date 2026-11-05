@@ -58,6 +58,64 @@ fn send_requires_exactly_one_body_source() {
 }
 
 #[test]
+#[ignore = "requires Bash, sqlite3 and AGENT_MAIL_TEST_AGMSG_DIR; uses isolated upstream scripts"]
+fn setup_registers_and_verifies_codex_and_claude_sessions() {
+    let temp = fixture();
+    let root = temp.path();
+    let invoke = |args: &[&str]| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_agent-mail"));
+        clean_environment(&mut command);
+        command
+            .arg("--agmsg-dir")
+            .arg(root)
+            .env("CODEX_HOME", root.join("codex-profile"))
+            .env("CLAUDE_CONFIG_DIR", root.join("claude-profile"))
+            .env_remove("CLAUDE_CODE_SESSION_ID")
+            .env_remove("CLAUDE_PID")
+            .current_dir(root)
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    success(invoke(&[
+        "join", "new-team", "--create", "--name", "tester", "--type", "codex",
+    ]));
+    success(invoke(&[
+        "join", "new-team", "--name", "tester", "--type", "codex",
+    ]));
+    let output = success(invoke(&[
+        "bind",
+        "new-team",
+        "--name",
+        "tester",
+        "--type",
+        "codex",
+        "--session-id",
+        "01900000-0000-7000-8000-000000000001",
+    ]));
+    assert!(output.contains("Bound new-team/tester"));
+    success(invoke(&[
+        "join",
+        "new-team",
+        "--name",
+        "claude-tester",
+        "--type",
+        "claude-code",
+    ]));
+    let output = success(invoke(&[
+        "bind",
+        "new-team",
+        "--name",
+        "claude-tester",
+        "--type",
+        "claude-code",
+        "--session-id",
+        "01900000-0000-7000-8000-000000000002",
+    ]));
+    assert!(output.contains("Bound new-team/claude-tester"));
+}
+
+#[test]
 #[ignore = "requires Bash, sqlite3 and AGENT_MAIL_TEST_AGMSG_DIR; uses real upstream scripts"]
 fn file_message_survives_history_and_is_read_only_once() {
     let temp = fixture();

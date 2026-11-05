@@ -37,7 +37,17 @@ agent-mail skill export .claude/skills/agent-mail
 
 `skill export` 会拒绝覆盖现有文件。更新时先备份原来的 `SKILL.md`，再导出新版。
 
-让 Agent 使用官方 agmsg 创建或加入同一远程团队，绑定不同角色，并保留 **agmsgd** 通知。
+首次从中转导入已有团队，再在接收消息的 Agent 会话里注册和绑定：
+
+```sh
+agent-mail --server http://127.0.0.1:8787 team import dev
+agent-mail join dev --name worker --type codex
+agent-mail bind dev --name worker --type codex
+```
+
+Claude Code 使用 `--type claude-code`。绑定默认读取当前运行环境的会话 ID；环境没有提供时，传 `--session-id <当前会话UUID>`。注册默认使用当前目录，也可传 `--project <目录>`。创建全新的本地团队用 `join --create`，随后仍需通过官方工具连接中转。
+已有团队直接 `join`；重复注册会复用同一项目和 Agent 类型下的身份。绑定不代表通知已启用，仍需通过官方 agmsg 配置 **agmsgd** 或其他通知方式。Claude 的绑定沿用上游行为，会认领该项目中同名身份所属的所有团队。
+
 连接好团队后，在每台机器运行一次：
 
 ```sh
@@ -78,8 +88,8 @@ agent-mail sync stop dev
 
 - [ ] 排查同步进程反复停止的问题，补充退出日志以定位原因。
 - [ ] 复现 Codex 桌面会话长时间未打开时的通知延迟，对比 `codex queue` 入队时间和点开会话后收到通知的时间。
-- [ ] 用 `agent-mail` CLI 导入已有远程团队并注册 Agent 身份。
-- [ ] 用 `agent-mail` CLI 把邮箱身份绑定到当前 Agent 会话。
+- [x] 用 `agent-mail` CLI 导入已有远程团队并注册 Agent 身份。
+- [x] 用 `agent-mail` CLI 把邮箱身份绑定到当前 Agent 会话。
 - [ ] 将首次接入和日常收发统一到 `$agent-mail` skill，底层继续复用 agmsg 的脚本与会话适配。
 - [ ] 用 `agent-mail` 统一启动、停止和检查 Rust 同步进程与 `agmsgd`。
 - [ ] 将跨机同步和本地会话唤醒合并到一个 Rust 后台进程，替换 `agmsgd`。

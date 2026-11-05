@@ -6,6 +6,7 @@ mod directory;
 mod doctor;
 mod legacy_export;
 mod native_send;
+mod setup;
 mod skill;
 mod store;
 mod sync;
@@ -13,7 +14,10 @@ mod sync;
 use std::process::ExitCode;
 
 use clap::Parser;
-use cli::{AgmsgCommand, BoardCommand, Cli, Command, DirectoryCommand, SkillCommand, SyncCommand};
+use cli::{
+    AgmsgCommand, BoardCommand, Cli, Command, DirectoryCommand, SkillCommand, SyncCommand,
+    TeamCommand,
+};
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -28,6 +32,46 @@ async fn main() -> ExitCode {
 
 async fn run(cli: Cli) -> Result<ExitCode, String> {
     match cli.command {
+        Command::Team {
+            command: TeamCommand::Import { team },
+        } => {
+            setup::import(&agmsg::Agmsg::new(cli.agmsg_dir)?, &team, &cli.server)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Join {
+            team,
+            name,
+            agent_type,
+            project,
+            create,
+        } => {
+            setup::join(
+                &agmsg::Agmsg::new(cli.agmsg_dir)?,
+                &team,
+                &name,
+                agent_type,
+                &project,
+                create,
+            )?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Bind {
+            team,
+            name,
+            agent_type,
+            project,
+            session_id,
+        } => {
+            setup::bind(
+                &agmsg::Agmsg::new(cli.agmsg_dir)?,
+                &team,
+                &name,
+                agent_type,
+                &project,
+                session_id,
+            )?;
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Sync { command } => {
             let agmsg = agmsg::Agmsg::new(cli.agmsg_dir)?;
             match command {
