@@ -7,7 +7,7 @@ use reqwest::{Client, Method, Url};
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{fs, path::Path, time::Duration};
+use std::{fs, path::Path};
 
 type Result<T> = std::result::Result<T, String>;
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -69,7 +69,7 @@ fn sequence(value: &str) -> Result<i64> {
         .parse::<i64>()
         .map_err(|_| "remote sequence exceeds supported range".into())
 }
-fn uuid(value: &str, version: usize) -> bool {
+pub(crate) fn uuid(value: &str, version: usize) -> bool {
     uuid::Uuid::parse_str(value)
         .is_ok_and(|u| u.get_version_num() == version && u.to_string() == value)
 }
@@ -80,7 +80,7 @@ fn binding_string(config: &Value, field: &str) -> Result<String> {
         .map(str::to_owned)
         .ok_or_else(|| format!("missing connected binding: {field}"))
 }
-fn endpoint(raw: &str) -> Result<Url> {
+pub(crate) fn endpoint(raw: &str) -> Result<Url> {
     let mut url = Url::parse(raw).map_err(|_| "invalid remote endpoint")?;
     if url.query().is_some()
         || url.fragment().is_some()
@@ -121,6 +121,14 @@ impl Context {
         Self::open_for_adoption(root, team, false)
     }
     fn open_for_adoption(root: &Path, team: &str, allow_official: bool) -> Result<Self> {
+        Self::open_with_policy(root, team, allow_official, false)
+    }
+    fn open_with_policy(
+        root: &Path,
+        team: &str,
+        allow_official: bool,
+        allow_pending: bool,
+    ) -> Result<Self> {
         if let Some(connection_root) =
             std::env::var_os("AGMSG_SYNC_CONNECTION_DIR").filter(|p| !p.is_empty())
         {
@@ -144,6 +152,12 @@ impl Context {
             return Err("the official remote sync engine is selected; use agent-mail sync enable TEAM to stop it and adopt native sync".into());
         }
         let config = &store.config;
+        if config["import_pending"] == true && !allow_pending {
+            return Err(
+                "team import is incomplete; repeat team import before starting synchronization"
+                    .into(),
+            );
+        }
         if config.pointer("/remote_binding/disconnected_at") != Some(&Value::Null)
             || config
                 .pointer("/remote_binding/protocol_version")
@@ -210,12 +224,7 @@ impl Context {
         sql(store.db.execute("INSERT OR IGNORE INTO sync_bindings(local_team,server_instance_id,remote_team_id,protocol_version,driver_generation) VALUES (?1,?2,?3,1,?4)", params![team,server,remote,generation]))?;
         // Never hold the team registry lock across HTTP requests.
         drop(store.registry_lock.take());
-        let http = Client::builder()
-            .connect_timeout(Duration::from_secs(5))
-            .timeout(Duration::from_secs(15))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|e| e.to_string())?;
+        let http = crate::remote::client()?;
         Ok(Self {
             store,
             team: team.into(),
@@ -252,34 +261,7 @@ impl Context {
         if let Some(body) = body {
             request = request.json(&body);
         }
-        // Do not print URLs or reqwest errors: they may carry private endpoint details.
-        let mut response = request.send().await.map_err(|_| "remote request failed")?;
-        if !response.status().is_success() {
-            return Err(format!(
-                "remote returned HTTP {}; no cursor was advanced",
-                response.status()
-            ));
-        }
-        if response
-            .headers()
-            .get("agmsg-protocol-version")
-            .and_then(|s| s.to_str().ok())
-            != Some("1")
-        {
-            return Err("remote omitted protocol version".into());
-        }
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|_| "cannot read remote response")?
-        {
-            if bytes.len() + chunk.len() > 16 * 1024 * 1024 {
-                return Err("remote response exceeds 16 MiB".into());
-            }
-            bytes.extend_from_slice(&chunk);
-        }
-        let value: Value = serde_json::from_slice(&bytes).map_err(|_| "invalid remote JSON")?;
+        let value = crate::remote::json(request).await?;
         if value["server_instance_id"] != self.server
             || value["team_id"] != self.remote
             || value["protocol_version"] != 1
@@ -307,19 +289,76 @@ pub async fn once(root: &Path, team: &str) -> Result<Outcome> {
     cycle(root, team).await
 }
 
-async fn cycle(root: &Path, team: &str) -> Result<Outcome> {
-    let mut ctx = Context::open(root, team)?;
+/// Setup imports only download. Never upload a synthesized roster, start a
+/// daemon, or mark remote mail read while reconstructing a new local team.
+pub(crate) async fn bootstrap(root: &Path, team: &str) -> Result<()> {
+    let _engine = runtime::EngineLock::acquire(root, team)?;
+    let mut ctx = Context::open_with_policy(root, team, false, true)?;
     let caps = ctx.request(Method::GET, "v1/capabilities", None).await?;
+    plaintext_policy(&caps)?;
+    if caps["min_available_seq"] != "0" {
+        return Err(
+            "remote history has a retention gap; native import cannot reconstruct it".into(),
+        );
+    }
+    for _ in 0..1000 {
+        let expected = ctx.cursor()?;
+        let after = sequence(&expected)?
+            .min(sequence(&ctx.roster_cursor()?)?)
+            .to_string();
+        let page = ctx
+            .request(
+                Method::GET,
+                &format!("v1/messages?after={after}&limit=10"),
+                None,
+            )
+            .await?;
+        ctx.apply(&expected, &after, &page)?;
+        if page["has_more"] == false {
+            let remote = ctx.request(Method::GET, "v1/members", None).await?;
+            let members = remote["members"]
+                .as_array()
+                .ok_or("invalid remote membership snapshot")?;
+            let _guard = ctx.guard()?;
+            let config = crate::registry::config(root, team)?;
+            let agents = config["agents"]
+                .as_object()
+                .ok_or("invalid imported roster")?;
+            let matched = members.len() == agents.len()
+                && members.iter().all(|m| {
+                    m["name"].as_str().is_some_and(|name| {
+                        agents
+                            .get(name)
+                            .is_some_and(|a| a["member_id"] == m["member_id"])
+                    })
+                });
+            if !matched {
+                return Err("remote membership is not represented by the available journal; retry after source synchronization".into());
+            }
+            return Ok(());
+        }
+    }
+    Err("import reached its page limit; repeat team import to continue".into())
+}
+
+pub(crate) fn plaintext_policy(caps: &Value) -> Result<()> {
     if !caps["accepted_envelope_versions"]
         .as_array()
         .is_some_and(|a| a.iter().any(|v| v == 1))
         || caps["cipher_profile"] != "none"
         || !caps["write_allowed_ciphers"]
             .as_array()
-            .is_some_and(|a| a.iter().any(|x| x == "none"))
+            .is_some_and(|a| a.iter().any(|v| v == "none"))
     {
         return Err("remote encryption policy does not allow this plaintext binding".into());
     }
+    Ok(())
+}
+
+async fn cycle(root: &Path, team: &str) -> Result<Outcome> {
+    let mut ctx = Context::open(root, team)?;
+    let caps = ctx.request(Method::GET, "v1/capabilities", None).await?;
+    plaintext_policy(&caps)?;
     let floor = caps["min_available_seq"]
         .as_str()
         .ok_or("missing retention floor")?;

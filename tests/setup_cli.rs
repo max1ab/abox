@@ -9,11 +9,6 @@ fn fixture() -> tempfile::TempDir {
         .prefix("setup with spaces ")
         .tempdir()
         .unwrap();
-    fs::create_dir_all(temp.path().join("scripts/drivers/types/codex")).unwrap();
-    fs::create_dir_all(temp.path().join("scripts/lib")).unwrap();
-    for script in ["agmsg", "api.sh"] {
-        fs::write(temp.path().join("scripts").join(script), "").unwrap();
-    }
     fs::write(temp.path().join("VERSION"), "v1.7.0\n").unwrap();
     let output = run(
         temp.path(),
@@ -31,7 +26,7 @@ fn fixture() -> tempfile::TempDir {
 
 fn run(root: &Path, arguments: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_agent-mail"))
-        .env_remove("AGENT_MAIL_BASH")
+        .env("AGENT_MAIL_BASH", root.join("bash-must-not-run"))
         .env_remove("AGENT_MAIL_SERVER")
         .env_remove("CODEX_THREAD_ID")
         .env_remove("CLAUDE_CODE_SESSION_ID")
@@ -86,35 +81,4 @@ fn bind_requires_session_evidence() {
     );
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("current session is unknown"));
-}
-
-#[test]
-fn silent_upstream_binding_failure_is_not_reported_as_success() {
-    let temp = fixture();
-    fs::write(
-        temp.path()
-            .join("scripts/drivers/types/codex/codex-record-session.sh"),
-        "exit 0",
-    )
-    .unwrap();
-    fs::write(
-        temp.path().join("scripts/lib/role-session.sh"),
-        "agmsg_role_session_load() { AGMSG_ROLE_SESSION_UUID=''; }",
-    )
-    .unwrap();
-    let output = run(
-        temp.path(),
-        &[
-            "bind",
-            "dev",
-            "--name",
-            "worker",
-            "--type",
-            "codex",
-            "--session-id",
-            "01a18bad-23eb-7711-8fa2-a8e8f7dea002",
-        ],
-    );
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("was not recorded"));
 }

@@ -4,9 +4,12 @@ mod cli;
 mod client;
 mod directory;
 mod doctor;
+mod import;
 mod mailbox;
 mod native_send;
 mod registry;
+mod remote;
+mod session;
 mod setup;
 mod skill;
 mod store;
@@ -36,7 +39,7 @@ async fn run(cli: Cli) -> Result<ExitCode, String> {
         Command::Team {
             command: TeamCommand::Import { team },
         } => {
-            setup::import(&agmsg::Agmsg::new(cli.agmsg_dir)?, &team, &cli.server)?;
+            setup::import(&agmsg::Agmsg::for_setup(cli.agmsg_dir)?, &team, &cli.server).await?;
             Ok(ExitCode::SUCCESS)
         }
         Command::Join {
@@ -46,14 +49,12 @@ async fn run(cli: Cli) -> Result<ExitCode, String> {
             project,
             create,
         } => {
-            setup::join(
-                &agmsg::Agmsg::new(cli.agmsg_dir)?,
-                &team,
-                &name,
-                agent_type,
-                &project,
-                create,
-            )?;
+            let local = if create {
+                agmsg::Agmsg::for_setup(cli.agmsg_dir)?
+            } else {
+                agmsg::Agmsg::new(cli.agmsg_dir)?
+            };
+            setup::join(&local, &team, &name, agent_type, &project, create)?;
             Ok(ExitCode::SUCCESS)
         }
         Command::Bind {
@@ -62,6 +63,7 @@ async fn run(cli: Cli) -> Result<ExitCode, String> {
             agent_type,
             project,
             session_id,
+            replace,
         } => {
             setup::bind(
                 &agmsg::Agmsg::new(cli.agmsg_dir)?,
@@ -70,6 +72,7 @@ async fn run(cli: Cli) -> Result<ExitCode, String> {
                 agent_type,
                 &project,
                 session_id,
+                replace,
             )?;
             Ok(ExitCode::SUCCESS)
         }

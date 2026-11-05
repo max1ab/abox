@@ -228,6 +228,9 @@ fn open_at(
     let team_dir = root.join("teams").join(team);
     let _lock = TeamLock::acquire(&team_dir)?;
     let cfg = json(&team_dir.join("config.json"))?;
+    if allow_absent && cfg["import_pending"] == true {
+        return Err("team import is incomplete; repeat team import before querying mail".into());
+    }
     let partition = match cfg.pointer("/drivers/partition") {
         None | Some(Value::Null) => "shared",
         Some(Value::String(s)) if s.is_empty() => "shared",
@@ -310,6 +313,14 @@ pub(crate) fn validate(db: &Connection) -> Result<(), String> {
 /// Only initializes an absent database. Existing schemas are validated, never
 /// silently migrated or marked read by a registration operation.
 pub(crate) fn initialize(root: &Path, team: &str, config: &Value) -> Result<(), String> {
+    initialize_mode(root, team, config, false)
+}
+
+pub(crate) fn initialize_import(root: &Path, team: &str, config: &Value) -> Result<(), String> {
+    initialize_mode(root, team, config, true)
+}
+
+fn initialize_mode(root: &Path, team: &str, config: &Value, importing: bool) -> Result<(), String> {
     team_name(team)?;
     if storage_driver()? != "sqlite" {
         return Err("native registration requires SQLite storage".into());
@@ -353,20 +364,42 @@ pub(crate) fn initialize(root: &Path, team: &str, config: &Value) -> Result<(), 
         .open(path.with_extension("init.lock"))
         .map_err(|e| e.to_string())?;
     guard.lock().map_err(|e| e.to_string())?;
-    if path.exists() {
+    if path.try_exists().map_err(|e| e.to_string())? {
+        if importing {
+            return Err("team database already exists without its registry; refusing to merge an import into it".into());
+        }
         let db = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
             .map_err(|e| e.to_string())?;
+        let empty = db
+            .query_row("SELECT count(*)=0 FROM sqlite_master", [], |r| {
+                r.get::<_, bool>(0)
+            })
+            .map_err(|e| e.to_string())?;
+        if config["import_pending"] == true && empty {
+            initialize_schema(&db)?;
+        }
         return validate(&db);
     }
-    fs::create_dir_all(path.parent().ok_or("invalid store path")?).map_err(|e| e.to_string())?;
+    if importing {
+        // Publish the resumable intent before creating SQLite. A crash in
+        // either step is recoverable without merging an unrelated orphan DB.
+        crate::registry::atomic(
+            &root.join("teams").join(team).join("config.json"),
+            config.to_string().as_bytes(),
+        )?;
+    }
     let db = Connection::open(&path).map_err(|e| e.to_string())?;
+    initialize_schema(&db)?;
+    validate(&db)
+}
+
+fn initialize_schema(db: &Connection) -> Result<(), String> {
     db.busy_timeout(Duration::from_secs(5))
         .map_err(|e| e.to_string())?;
     db.pragma_update(None, "journal_mode", "wal")
         .map_err(|e| e.to_string())?;
     db.execute_batch(include_str!("mail-schema.sql"))
-        .map_err(|e| e.to_string())?;
-    validate(&db)
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

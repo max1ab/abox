@@ -55,6 +55,9 @@ pub fn teams(root: &Path) -> Result<Vec<Value>, String> {
 
 pub fn members(root: &Path, team: &str) -> Result<Vec<crate::agmsg::Member>, String> {
     let config = crate::registry::config(root, team)?;
+    if config["import_pending"] == true {
+        return Err("team import is incomplete; repeat team import before querying mail".into());
+    }
     let agents = config["agents"].as_object().ok_or("invalid team roster")?;
     let mut members = Vec::new();
     for (name, agent) in agents {
@@ -96,6 +99,9 @@ pub fn history(
     let Some(store) = crate::store::open_existing(root, team)? else {
         return Ok(vec![]);
     };
+    if store.config["import_pending"] == true {
+        return Err("team import is incomplete; repeat team import before querying mail".into());
+    }
     let mut statement = store
         .db
         .prepare(
@@ -142,6 +148,9 @@ pub fn inbox(root: &Path, team: &str, agent: &str) -> Result<(), String> {
         writeln!(std::io::stdout().lock(), "No new messages.").map_err(|e| e.to_string())?;
         return Ok(());
     };
+    if store.config["import_pending"] == true {
+        return Err("team import is incomplete; repeat team import before reading mail".into());
+    }
     // Snapshot only what is actually displayed. Messages arriving during output
     // must remain unread; output failure must never consume the snapshot.
     let messages = unread(&store.db, team, agent)?;

@@ -113,6 +113,33 @@ fn setup_registers_and_verifies_codex_and_claude_sessions() {
         "01900000-0000-7000-8000-000000000002",
     ]));
     assert!(output.contains("Bound new-team/claude-tester"));
+    // Verify the native records through the actual upstream reader consumed
+    // by session tooling, not through the native implementation itself.
+    for (name, expected) in [
+        ("tester", "01900000-0000-7000-8000-000000000001"),
+        ("claude-tester", "01900000-0000-7000-8000-000000000002"),
+    ] {
+        let mut command = Command::new("bash");
+        clean_environment(&mut command);
+        let actual = success(
+            command
+                .args([
+                    "-c",
+                    r#"
+export SKILL_DIR="$1"
+source "$1/scripts/lib/role-session.sh"
+agmsg_role_session_load new-team "$2"
+printf '%s' "$AGMSG_ROLE_SESSION_UUID"
+"#,
+                    "verify-native-binding",
+                ])
+                .arg(root)
+                .arg(name)
+                .output()
+                .unwrap(),
+        );
+        assert_eq!(actual, expected);
+    }
 }
 
 #[test]

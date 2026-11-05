@@ -18,13 +18,13 @@ fn doctor_reports_both_configuration_errors_and_returns_failure() {
         .map(|line| serde_json::from_str(line).unwrap())
         .collect();
     assert_eq!(checks.len(), 2);
-    assert_eq!(checks[0]["component"], "agmsg");
+    assert_eq!(checks[0]["component"], "mailbox");
     assert_eq!(checks[0]["ok"], false);
     assert!(
         checks[0]["detail"]
             .as_str()
             .unwrap()
-            .contains("cannot open agmsg installation")
+            .contains("cannot open Agent Mail data directory")
     );
     assert_eq!(checks[1]["component"], "server");
     assert_eq!(checks[1]["ok"], false);

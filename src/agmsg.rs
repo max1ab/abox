@@ -1,7 +1,6 @@
 use std::env;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde::Deserialize;
 
@@ -40,57 +39,6 @@ fn windows_shell_path(path: &str) -> String {
 }
 
 impl Agmsg {
-    pub(crate) fn capture(
-        &self,
-        script: &str,
-        args: &[OsString],
-        environment: &[(&str, &str)],
-    ) -> Result<String, String> {
-        let path = self.scripts.join(script);
-        let output = Command::new(&self.bash)
-            .arg(shell_path(&path))
-            .args(args)
-            .envs(environment.iter().copied())
-            .stdin(std::process::Stdio::null())
-            .output()
-            .map_err(|e| format!("cannot run {}: {e}", path.display()))?;
-        use std::io::Write;
-        std::io::stderr()
-            .write_all(&output.stderr)
-            .map_err(|e| e.to_string())?;
-        let stdout = String::from_utf8(output.stdout).map_err(|e| e.to_string())?;
-        if !output.status.success() {
-            return Err(format!(
-                "{script} failed ({}): {}",
-                output.status,
-                stdout.trim()
-            ));
-        }
-        Ok(stdout)
-    }
-
-    pub(crate) fn recorded_session(&self, team: &str, name: &str) -> Result<String, String> {
-        let output = Command::new(&self.bash)
-            .args([
-                "-c",
-                r#"
-export SKILL_DIR="$1"
-source "$1/scripts/lib/role-session.sh" || exit 1
-agmsg_role_session_load "$2" "$3"
-printf '%s' "$AGMSG_ROLE_SESSION_UUID"
-"#,
-                "agent-mail-read-session",
-            ])
-            .arg(shell_path(&self.root))
-            .args([team, name])
-            .output()
-            .map_err(|e| e.to_string())?;
-        if !output.status.success() {
-            return Err("cannot verify the upstream session record".into());
-        }
-        String::from_utf8(output.stdout).map_err(|e| e.to_string())
-    }
-
     pub(crate) async fn resume_daemon(&self, operation: u64) -> Result<(), String> {
         let mut command = tokio::process::Command::new(&self.bash);
         command
@@ -149,50 +97,63 @@ exit "$result"
     pub(crate) fn root(&self) -> &Path {
         &self.root
     }
-    /// Bounded, read-only probe; never starts daemon or registers a session.
-    pub async fn version(&self) -> Result<String, String> {
-        let mut command = tokio::process::Command::new(&self.bash);
-        command
-            .arg(shell_path(&self.scripts.join("agmsg")))
-            .arg("--version");
-        command.kill_on_drop(true);
-        let output = tokio::time::timeout(std::time::Duration::from_secs(5), command.output())
-            .await
-            .map_err(|_| "agmsg version check timed out after 5 seconds".to_string())?
-            .map_err(|e| format!("cannot run agmsg via bash: {e}"))?;
-        if !output.status.success() {
-            return Err(format!(
-                "agmsg version check failed ({}): {}",
-                output.status,
-                String::from_utf8_lossy(&output.stderr).trim()
-            ));
+    /// Read-only local format check; never starts Bash or a notification service.
+    pub fn version(&self) -> Result<String, String> {
+        let version = std::fs::read_to_string(self.root.join("VERSION"))
+            .map_err(|e| format!("cannot read mailbox format: {e}"))?;
+        if version.trim().trim_start_matches('v') != "1.7.0" {
+            return Err(
+                "unsupported local mailbox format; expected agmsg v1.7.0 compatible data".into(),
+            );
         }
-        let version = String::from_utf8(output.stdout)
-            .map_err(|e| format!("agmsg version is not UTF-8: {e}"))?;
-        if version.trim().is_empty() {
-            return Err("agmsg version check returned empty output".into());
+        Ok("Agent Mail native mailbox (agmsg v1.7.0 format)".into())
+    }
+
+    pub fn for_setup(root: Option<PathBuf>) -> Result<Self, String> {
+        use std::{fs, io::Write};
+        let root = Self::location(root)?;
+        fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+        let init = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(root.join(".agent-mail-init.lock"))
+            .map_err(|e| e.to_string())?;
+        init.lock().map_err(|e| e.to_string())?;
+        let marker = root.join("VERSION");
+        if !marker.try_exists().map_err(|e| e.to_string())? {
+            for entry in fs::read_dir(&root).map_err(|e| e.to_string())? {
+                if entry.map_err(|e| e.to_string())?.file_name() != ".agent-mail-init.lock" {
+                    return Err("data directory is not empty and has no recognized mailbox format; choose a new --agmsg-dir".into());
+                }
+            }
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(marker)
+                .map_err(|e| e.to_string())?;
+            file.write_all(b"1.7.0\n")
+                .and_then(|_| file.sync_all())
+                .map_err(|e| e.to_string())?;
         }
-        Ok(version.trim().to_owned())
+        let client = Self::new(Some(root))?;
+        client.version()?;
+        Ok(client)
+    }
+
+    fn location(root: Option<PathBuf>) -> Result<PathBuf, String> {
+        if let Some(root) = root {
+            return Ok(root);
+        }
+        Ok(crate::store::home()?.join(".agents/skills/agmsg"))
     }
 
     pub fn new(root: Option<PathBuf>) -> Result<Self, String> {
-        let root = match root {
-            Some(root) => root,
-            None => {
-                let home = if cfg!(windows) {
-                    env::var_os("USERPROFILE").or_else(|| env::var_os("HOME"))
-                } else {
-                    env::var_os("HOME")
-                };
-                PathBuf::from(home.ok_or(
-                    "user home is unavailable; specify --agmsg-dir or AGENT_MAIL_AGMSG_DIR",
-                )?)
-                .join(".agents/skills/agmsg")
-            }
-        };
+        let root = Self::location(root)?;
         let root = root.canonicalize().map_err(|error| {
             format!(
-                "cannot open agmsg installation {}: {error}; install agmsg separately or specify --agmsg-dir",
+                "cannot open Agent Mail data directory {}: {error}; run team import or join --create first, or specify --agmsg-dir",
                 root.display()
             )
         })?;

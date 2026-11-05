@@ -34,12 +34,12 @@ impl Check {
 
 pub async fn run(agmsg_dir: Option<PathBuf>, server: &str) -> Result<ExitCode, String> {
     // Neither failed component prevents checking the other one.
-    let (agmsg, service) = tokio::join!(async { Agmsg::new(agmsg_dir)?.version().await }, async {
+    let (agmsg, service) = tokio::join!(async { Agmsg::new(agmsg_dir)?.version() }, async {
         ApiClient::new(server)?.health().await?;
         Ok("Agent Mail HTTP service and board/profile tables readable".to_owned())
     });
     let checks = [
-        Check::from_result("agmsg", agmsg),
+        Check::from_result("mailbox", agmsg),
         Check::from_result("server", service),
     ];
     let ok = checks.iter().all(|check| check.ok);

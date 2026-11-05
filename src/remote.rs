@@ -1,0 +1,45 @@
+//! Bounded JSON reads shared by setup and synchronization.
+use reqwest::{Client, RequestBuilder};
+use serde_json::Value;
+use std::time::Duration;
+
+pub(crate) fn client() -> Result<Client, String> {
+    Client::builder()
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(15))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+pub(crate) async fn json(request: RequestBuilder) -> Result<Value, String> {
+    // Endpoint paths can contain private capability tokens. Never expose them
+    // through reqwest's error strings or redirect to a different server.
+    let mut response = request.send().await.map_err(|_| "remote request failed")?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "remote returned HTTP {}; no cursor was advanced",
+            response.status()
+        ));
+    }
+    if response
+        .headers()
+        .get("agmsg-protocol-version")
+        .and_then(|h| h.to_str().ok())
+        != Some("1")
+    {
+        return Err("remote omitted protocol version".into());
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| "cannot read remote response")?
+    {
+        if bytes.len() + chunk.len() > 16 * 1024 * 1024 {
+            return Err("remote response exceeds 16 MiB".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    serde_json::from_slice(&bytes).map_err(|_| "invalid remote JSON".into())
+}

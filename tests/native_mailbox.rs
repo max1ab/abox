@@ -210,3 +210,25 @@ fn malformed_roster_is_reported_without_erasing_registrations() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("roster journal"));
     assert_eq!(fs::read(config).unwrap(), before);
 }
+
+#[test]
+fn first_local_registration_creates_its_data_root_without_an_upstream_installation() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("new-client");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_agent-mail"));
+    common::clean_environment(&mut command);
+    let output = command
+        .env("AGENT_MAIL_BASH", root.join("absent-bash"))
+        .arg("--agmsg-dir")
+        .arg(&root)
+        .current_dir(temp.path())
+        .args([
+            "join", "dev", "--create", "--name", "worker", "--type", "codex",
+        ])
+        .output()
+        .unwrap();
+    ok(output);
+    assert!(root.join("teams/dev/config.json").exists());
+    assert!(root.join("db/messages.db").exists());
+    assert!(!root.join("scripts").exists());
+}

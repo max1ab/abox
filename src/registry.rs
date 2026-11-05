@@ -139,6 +139,9 @@ pub fn join(
     } else {
         json!({"name":team,"team_id":uuid::Uuid::now_v7().to_string(),"agents":{},"created_at":now()?})
     };
+    if cfg["import_pending"] == true {
+        return Err("team import is incomplete; repeat team import before joining".into());
+    }
     if !cfg.is_object() || !cfg["agents"].is_object() {
         return Err("invalid team roster".into());
     }

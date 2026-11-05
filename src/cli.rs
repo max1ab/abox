@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand, ValueEnum};
     about = "Agent Mail — agmsg messaging and a silent bulletin board"
 )]
 pub struct Cli {
-    /// agmsg installation root (contains scripts/); defaults to ~/.agents/skills/agmsg.
+    /// Local data root; defaults to ~/.agents/skills/agmsg during the native transition.
     #[arg(long, global = true, env = "AGENT_MAIL_AGMSG_DIR")]
     pub agmsg_dir: Option<PathBuf>,
     /// Relay server for the shared board and profiles.
@@ -55,13 +55,16 @@ pub enum Command {
         /// Current session UUID; otherwise use the runtime's session environment.
         #[arg(long)]
         session_id: Option<String>,
+        /// Explicitly replace a previous notification destination; never steals Monitor ownership.
+        #[arg(long)]
+        replace: bool,
     },
     /// Native remote synchronization over an existing agmsg binding.
     Sync {
         #[command(subcommand)]
         command: SyncCommand,
     },
-    /// Check local agmsg and the shared service; does not verify sync or session wake.
+    /// Check local mailbox format and the shared service; does not verify sync or session wake.
     Doctor,
     /// Export the bundled Agent Mail skill; does not install or configure agmsg.
     Skill {

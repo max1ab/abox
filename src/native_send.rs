@@ -33,6 +33,9 @@ pub fn send(
     }
     let mut store = crate::store::open(root, team)?;
     let cfg = &store.config;
+    if cfg["import_pending"] == true {
+        return Err("team import is incomplete; repeat team import before sending".into());
+    }
     let agents = cfg
         .get("agents")
         .and_then(Value::as_object)
