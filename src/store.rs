@@ -13,7 +13,7 @@ fn json(path: &Path) -> Result<Value, String> {
     serde_json::from_slice(&bytes).map_err(|e| format!("invalid JSON in {}: {e}", path.display()))
 }
 
-fn home() -> Result<PathBuf, String> {
+pub(crate) fn home() -> Result<PathBuf, String> {
     let value = if cfg!(windows) {
         env::var_os("USERPROFILE").or_else(|| env::var_os("HOME"))
     } else {
@@ -154,7 +154,7 @@ pub(crate) struct TeamStore {
     pub registry_lock: Option<TeamLock>,
 }
 
-pub(crate) fn open(root: &Path, team: &str) -> Result<TeamStore, String> {
+fn storage_driver() -> Result<String, String> {
     let storage_config = match env::var_os("AGMSG_STORAGE_DRIVER").filter(|x| !x.is_empty()) {
         Some(driver) => driver.to_string_lossy().into_owned(),
         None => {
@@ -173,14 +173,33 @@ pub(crate) fn open(root: &Path, team: &str) -> Result<TeamStore, String> {
             }
         }
     };
+    Ok(storage_config)
+}
+
+pub(crate) fn open(root: &Path, team: &str) -> Result<TeamStore, String> {
+    open_mode(root, team, false)?.ok_or_else(|| "mailbox has not been initialized".into())
+}
+
+pub(crate) fn open_existing(root: &Path, team: &str) -> Result<Option<TeamStore>, String> {
+    open_mode(root, team, true)
+}
+
+fn open_mode(root: &Path, team: &str, allow_absent: bool) -> Result<Option<TeamStore>, String> {
+    let storage_config = storage_driver()?;
     let base = env::var_os("AGMSG_STORAGE_PATH")
         .filter(|x| !x.is_empty())
         .map(|x| native_path(Path::new(&x)))
         .unwrap_or_else(|| root.join("db"));
-    open_at(root, &base, &storage_config, team)
+    open_at(root, &base, &storage_config, team, allow_absent)
 }
 
-fn open_at(root: &Path, base: &Path, driver: &str, team: &str) -> Result<TeamStore, String> {
+fn open_at(
+    root: &Path,
+    base: &Path,
+    driver: &str,
+    team: &str,
+    allow_absent: bool,
+) -> Result<Option<TeamStore>, String> {
     team_name(team)?;
     let version = fs::read_to_string(root.join("VERSION"))
         .map_err(|e| format!("cannot verify agmsg version: {e}"))?;
@@ -224,6 +243,9 @@ fn open_at(root: &Path, base: &Path, driver: &str, team: &str) -> Result<TeamSto
             ));
         }
     };
+    if allow_absent && !path.try_exists().map_err(|e| e.to_string())? {
+        return Ok(None);
+    }
     // No CREATE flag: never create an empty file at a guessed path.
     let db =
         Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|e| {
@@ -245,13 +267,13 @@ fn open_at(root: &Path, base: &Path, driver: &str, team: &str) -> Result<TeamSto
         .map_err(|e| e.to_string())?;
     validate(&db)?;
 
-    Ok(TeamStore {
+    Ok(Some(TeamStore {
         db,
         config: cfg,
         team_dir,
         base: base.to_owned(),
         registry_lock: Some(_lock),
-    })
+    }))
 }
 
 pub(crate) fn validate(db: &Connection) -> Result<(), String> {
@@ -283,6 +305,68 @@ pub(crate) fn validate(db: &Connection) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+/// Only initializes an absent database. Existing schemas are validated, never
+/// silently migrated or marked read by a registration operation.
+pub(crate) fn initialize(root: &Path, team: &str, config: &Value) -> Result<(), String> {
+    team_name(team)?;
+    if storage_driver()? != "sqlite" {
+        return Err("native registration requires SQLite storage".into());
+    }
+    if env::var_os("AGMSG_PLUGIN_DIRS").is_some_and(|v| !v.is_empty()) {
+        return Err("native registration does not support external drivers".into());
+    }
+    for file in [
+        "storage/sqlite.sh",
+        "partition/shared.sh",
+        "partition/per-team.sh",
+    ] {
+        if root.join("plugins").join(file).exists() {
+            return Err("native registration does not support overridden drivers".into());
+        }
+    }
+    let version = fs::read_to_string(root.join("VERSION")).map_err(|e| e.to_string())?;
+    if version.trim().trim_start_matches('v') != "1.7.0" {
+        return Err("native registration supports agmsg v1.7.0 only".into());
+    }
+
+    let base = env::var_os("AGMSG_STORAGE_PATH")
+        .filter(|v| !v.is_empty())
+        .map(|v| native_path(Path::new(&v)))
+        .unwrap_or_else(|| root.join("db"));
+    let path = match config
+        .pointer("/drivers/partition")
+        .and_then(Value::as_str)
+        .unwrap_or("shared")
+    {
+        "shared" => base.join("messages.db"),
+        "per-team" => base.join("teams").join(team).join("messages.db"),
+        _ => return Err("unsupported partition driver".into()),
+    };
+    fs::create_dir_all(path.parent().ok_or("invalid store path")?).map_err(|e| e.to_string())?;
+    let guard = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path.with_extension("init.lock"))
+        .map_err(|e| e.to_string())?;
+    guard.lock().map_err(|e| e.to_string())?;
+    if path.exists() {
+        let db = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
+            .map_err(|e| e.to_string())?;
+        return validate(&db);
+    }
+    fs::create_dir_all(path.parent().ok_or("invalid store path")?).map_err(|e| e.to_string())?;
+    let db = Connection::open(&path).map_err(|e| e.to_string())?;
+    db.busy_timeout(Duration::from_secs(5))
+        .map_err(|e| e.to_string())?;
+    db.pragma_update(None, "journal_mode", "wal")
+        .map_err(|e| e.to_string())?;
+    db.execute_batch(include_str!("mail-schema.sql"))
+        .map_err(|e| e.to_string())?;
+    validate(&db)
 }
 
 #[cfg(test)]

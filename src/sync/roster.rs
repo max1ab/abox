@@ -83,6 +83,19 @@ fn is_mutation(record: &Value) -> bool {
         Some("member_joined" | "member_left" | "member_renamed" | "key_rotated")
     )
 }
+pub(crate) fn validate_journal(records: &[Value]) -> Result<()> {
+    for record in records {
+        match record["type"].as_str() {
+            Some("member_joined" | "member_left" | "member_renamed" | "key_rotated") => {
+                projection(record)?;
+            }
+            Some("roster_synced") => {}
+            _ => return Err("unsupported or malformed roster journal record".into()),
+        }
+    }
+    Ok(())
+}
+
 fn read_optional(path: &Path) -> Result<Option<Vec<u8>>> {
     match fs::read(path) {
         Ok(bytes) => Ok(Some(bytes)),

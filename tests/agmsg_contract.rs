@@ -418,3 +418,53 @@ printf '%s\n' '{"type":"sync_prepare","envelope_v":1,"cipher":"none","key_id":nu
     assert_eq!(projection["from_agent"], "sender");
     assert_eq!(projection["to_agent"], "receiver");
 }
+
+#[test]
+#[ignore = "requires Bash, sqlite3 and AGENT_MAIL_TEST_AGMSG_DIR; uses isolated official scripts"]
+fn native_and_official_inboxes_share_the_same_read_state() {
+    let temp = fixture();
+    let root = temp.path();
+    let file = root.join("body.txt");
+    fs::write(&file, "native to official").unwrap();
+    success(native_send(root, &file).output().unwrap());
+    let upstream = |script: &str, args: &[&str]| {
+        let mut command = Command::new("bash");
+        clean_environment(&mut command);
+        success(
+            command
+                .arg(root.join("scripts").join(script))
+                .args(args)
+                .output()
+                .unwrap(),
+        )
+    };
+    assert!(upstream("inbox.sh", &["contract", "receiver"]).contains("1 new message(s):"));
+    assert_eq!(
+        success(
+            cli(root)
+                .args(["inbox", "contract", "receiver"])
+                .output()
+                .unwrap()
+        )
+        .trim(),
+        "No new messages."
+    );
+    fs::write(&file, "official to native").unwrap();
+    upstream(
+        "send.sh",
+        &["contract", "sender", "receiver", file.to_str().unwrap()],
+    );
+    assert!(
+        success(
+            cli(root)
+                .args(["inbox", "contract", "receiver"])
+                .output()
+                .unwrap()
+        )
+        .contains("1 new message(s):")
+    );
+    assert_eq!(
+        upstream("inbox.sh", &["contract", "receiver"]).trim(),
+        "No new messages."
+    );
+}

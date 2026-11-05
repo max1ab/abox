@@ -4,7 +4,9 @@ mod cli;
 mod client;
 mod directory;
 mod doctor;
+mod mailbox;
 mod native_send;
+mod registry;
 mod setup;
 mod skill;
 mod store;
@@ -186,44 +188,28 @@ async fn run(cli: Cli) -> Result<ExitCode, String> {
         }
         Command::Agmsg { command } => {
             let client = agmsg::Agmsg::new(cli.agmsg_dir)?;
-            let status = match command {
-                AgmsgCommand::Version => client.run("agmsg", &["--version"]),
-                AgmsgCommand::Teams => client.run("api.sh", &["get", "teams"]),
-                AgmsgCommand::Members { team } => {
-                    client.run("api.sh", &["get", "teams", &team, "members"])
-                }
-                AgmsgCommand::Messages { team, agent, limit } => {
-                    let limit = limit.to_string();
-                    let mut args = vec!["get", "teams", &team, "messages", "--limit", &limit];
-                    if let Some(agent) = agent.as_deref() {
-                        args.extend(["--agent", agent]);
-                    }
-                    client.run("api.sh", &args)
-                }
+            match command {
+                AgmsgCommand::Version => println!(
+                    "agent-mail {} (mailbox format 1)",
+                    env!("CARGO_PKG_VERSION")
+                ),
+                AgmsgCommand::Teams => client::print_jsonl(mailbox::teams(client.root())?)?,
+                AgmsgCommand::Members { team } => client::print_jsonl(client.members(&team)?)?,
+                AgmsgCommand::Messages { team, agent, limit } => client::print_jsonl(
+                    mailbox::history(client.root(), &team, agent.as_deref(), limit)?,
+                )?,
                 AgmsgCommand::Send {
                     team,
                     from,
                     to,
                     body_file,
                     ..
-                } => {
-                    client.send(&team, &from, &to, body_file.as_deref())?;
-                    return Ok(ExitCode::SUCCESS);
-                }
+                } => client.send(&team, &from, &to, body_file.as_deref())?,
                 AgmsgCommand::Inbox { team, agent } => {
-                    let status = client.run("inbox.sh", &[&team, &agent])?;
-                    if status.success() {
-                        sync::runtime::notify(client.root(), &team);
-                    }
-                    Ok(status)
+                    mailbox::inbox(client.root(), &team, &agent)?
                 }
-            }?;
-            Ok(ExitCode::from(
-                status
-                    .code()
-                    .and_then(|code| u8::try_from(code).ok())
-                    .unwrap_or(1),
-            ))
+            }
+            Ok(ExitCode::SUCCESS)
         }
     }
 }

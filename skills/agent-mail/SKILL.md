@@ -1,6 +1,6 @@
 ---
 name: agent-mail
-description: Use Agent Mail to find agmsg teammates with role profiles, send private mail with its native SQLite writer, read private mail through official agmsg scripts, and publish or read a silent shared bulletin board. Use the installed official agmsg skill for joining teams, binding sessions, and configuring wake delivery.
+description: Use Agent Mail to find agmsg teammates with role profiles, send private mail with its native SQLite writer, read private mail natively, and publish or read a silent shared bulletin board. Use Agent Mail for registration and binding; consult the installed official agmsg skill for notification setup and connection repair.
 ---
 
 # Agent Mail
@@ -10,7 +10,7 @@ Use the `agent-mail` executable for private mail, directory and board operations
 ## Connection and identity
 
 - Use the configured `AGENT_MAIL_SERVER` or pass `--server <URL>` before the subcommand. The default is `http://127.0.0.1:8787`; remote teammates must use their shared service address.
-- Directory listing also needs the local agmsg installation, defaulting to `~/.agents/skills/agmsg`. For another installation use `AGENT_MAIL_AGMSG_DIR` or `--agmsg-dir <root>`; the root contains `scripts/`.
+- Directory listing also needs the local agmsg installation, defaulting to `~/.agents/skills/agmsg`. For another installation use `AGENT_MAIL_AGMSG_DIR` or `--agmsg-dir <root>`; the root contains `teams/`, `db/`, and `VERSION`; setup and wake still need the upstream scripts.
 - Reuse the known team and role from the user's task or the current agmsg binding. If either is unknown, ask before publishing or changing a profile. A display name is not a recipient address: use the exact `(team, agent)` pair.
 - If the executable or service is unavailable, report the failed dependency. Installation, service startup, team joining, and session binding are separate setup work; a failed query is not an empty directory or board.
 
@@ -18,7 +18,7 @@ Import an existing remote team with `agent-mail --server URL team import TEAM`, 
 
 For notification setup and repairing existing remote connections, read and follow the installed official agmsg skill. Binding does not enable notifications. Claude binding claims the same identity across its registered teams in the project, following upstream behavior. Once the team has a connected plaintext binding, `agent-mail sync enable TEAM` selects native synchronization and installs user-login supervision; `--no-login` uses hook-driven restart only. `sync status TEAM` probes the actual engine; `sync stop TEAM` stops it until a later start or agent hook, and `sync disable TEAM` returns startup to the official transport. Do not run two transport engines for the same binding. Official agmsg upgrades require reviewing/reinstalling the pinned native integration, not bypassing its version/integrity checks.
 
- Use the commands below for private mail: sending writes directly using the pinned agmsg v1.7.0 SQLite format; reading uses official scripts. Do not infer session IDs or manually read or change agmsg's database.
+Use the commands below for private mail. Registration, mailbox queries and mail reads/writes use Rust with the existing agmsg v1.7.0 SQLite format. Do not infer session IDs or manually read or change agmsg's database.
 
 ## Send and read private mail
 
@@ -28,7 +28,7 @@ agent-mail agmsg inbox dev reviewer
 agent-mail agmsg messages dev --agent reviewer --limit 20
 ```
 
-Use the known bound role as sender and an exact team member name as recipient. Write generated text to a UTF-8 file, then pass its path using `--body-file`. Do not substitute file contents into a shell argument with `$(cat ...)`. Native send requires an existing, initialized v1.7.0 SQLite mailbox, supports shared/per-team stores and Codex/Claude recipients, and never starts Bash. Unsupported versions, drivers or schemas fail without writing; do not bypass the check. It does not run upstream terminal self-naming or extension dispatch hooks. Registration and wake still require the official installation and its dependencies. Permissions still apply to the command itself.
+Use the known bound role as sender and an exact team member name as recipient. Write generated text to a UTF-8 file, then pass its path using `--body-file`. Do not substitute file contents into a shell argument with `$(cat ...)`. Native send requires an existing, initialized v1.7.0 SQLite mailbox, supports shared/per-team stores and Codex/Claude recipients, and never starts Bash. Unsupported versions, drivers or schemas fail without writing; do not bypass the check. It does not run upstream terminal self-naming or extension dispatch hooks. Registration initializes a fresh mailbox natively. Remote team import, session binding and wake still require the official scripts and their dependencies. Permissions still apply to the command itself.
 
 On a new-message notice, check your own inbox. `inbox` marks messages read; the history query does not. Reading is not task completion. Sending successfully means agmsg stored the message locally, not that a teammate received or executed it. Use an explicit reply to communicate acceptance or completion when the task calls for one. agmsg strips trailing newlines from message bodies.
 

@@ -298,6 +298,7 @@ pub mod bridge;
 mod events;
 mod read_state;
 mod roster;
+pub(crate) use roster::validate_journal;
 pub mod runtime;
 pub mod service;
 

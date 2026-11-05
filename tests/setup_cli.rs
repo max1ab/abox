@@ -14,16 +14,18 @@ fn fixture() -> tempfile::TempDir {
     for script in ["agmsg", "api.sh"] {
         fs::write(temp.path().join("scripts").join(script), "").unwrap();
     }
-    fs::write(
-        temp.path().join("scripts/team-list.sh"),
-        "echo '{\"teams\":[{\"name\":\"dev\"}]}'",
-    )
-    .unwrap();
-    fs::write(
-        temp.path().join("scripts/identities.sh"),
-        "printf 'dev\tworker\n'",
-    )
-    .unwrap();
+    fs::write(temp.path().join("VERSION"), "v1.7.0\n").unwrap();
+    let output = run(
+        temp.path(),
+        &[
+            "join", "dev", "--create", "--name", "worker", "--type", "codex",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     temp
 }
 
@@ -33,6 +35,7 @@ fn run(root: &Path, arguments: &[&str]) -> Output {
         .env_remove("AGENT_MAIL_SERVER")
         .env_remove("CODEX_THREAD_ID")
         .env_remove("CLAUDE_CODE_SESSION_ID")
+        .current_dir(root)
         .arg("--agmsg-dir")
         .arg(root)
         .args(arguments)

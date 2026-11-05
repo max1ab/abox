@@ -68,7 +68,7 @@ pub enum Command {
         #[command(subcommand)]
         command: SkillCommand,
     },
-    /// Use an existing agmsg installation; native send, official scripts for reads.
+    /// Local mailbox commands; all mail reads and writes use Rust.
     Agmsg {
         #[command(subcommand)]
         command: AgmsgCommand,
@@ -186,7 +186,7 @@ pub enum BoardCommand {
 
 #[derive(Subcommand)]
 pub enum AgmsgCommand {
-    /// Print the installed agmsg version.
+    /// Print the native client version and mailbox format.
     Version,
     /// List teams as JSONL.
     Teams,
