@@ -182,7 +182,7 @@ pub(super) async fn follow(root: PathBuf, team: String, wake: Arc<Notify>, mode:
         delay = (delay * 2).min(60);
     }
 }
-pub(super) fn mode_name(mode: &AtomicU8) -> String {
+pub(crate) fn mode_name(mode: &AtomicU8) -> String {
     match mode.load(Ordering::Relaxed) {
         1 => "connected",
         2 => "fallback",

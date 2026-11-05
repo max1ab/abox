@@ -2,6 +2,7 @@ mod agmsg;
 mod board;
 mod cli;
 mod client;
+mod daemon;
 mod directory;
 mod doctor;
 mod import;
@@ -24,9 +25,39 @@ use cli::{
     TeamCommand,
 };
 
-#[tokio::main]
-async fn main() -> ExitCode {
-    match run(Cli::parse()).await {
+fn main() -> ExitCode {
+    let cli = Cli::parse();
+    // Environment restoration and stdio redirection happen before any Tokio
+    // threads exist; the OS supervisor owns this single process throughout.
+    let _log = if matches!(
+        cli.command,
+        Command::Daemon {
+            command: cli::DaemonCommand::Launch
+        }
+    ) {
+        match agmsg::Agmsg::new(cli.agmsg_dir.clone())
+            .and_then(|local| daemon::prepare_launch(local.root()))
+        {
+            Ok(log) => Some(log),
+            Err(e) => {
+                eprintln!("agent-mail: {e}");
+                return ExitCode::FAILURE;
+            }
+        }
+    } else {
+        None
+    };
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("agent-mail: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    match runtime.block_on(run(cli)) {
         Ok(code) => code,
         Err(error) => {
             eprintln!("agent-mail: {error}");
@@ -37,6 +68,20 @@ async fn main() -> ExitCode {
 
 async fn run(cli: Cli) -> Result<ExitCode, String> {
     match cli.command {
+        Command::Daemon { command } => {
+            let local = agmsg::Agmsg::new(cli.agmsg_dir)?;
+            match command {
+                cli::DaemonCommand::Start { no_login } => {
+                    client::print_jsonl([daemon::start(local.root(), no_login).await?])?
+                }
+                cli::DaemonCommand::Stop => daemon::stop(local.root()).await?,
+                cli::DaemonCommand::Status => client::print_jsonl([daemon::status(local.root())?])?,
+                cli::DaemonCommand::Run | cli::DaemonCommand::Launch => {
+                    daemon::run(local.root()).await?
+                }
+            }
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Inbox {
             agent_type,
             session_id,

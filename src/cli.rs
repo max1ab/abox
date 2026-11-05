@@ -25,6 +25,11 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Run one background process for local notifications and all connected teams.
+    Daemon {
+        #[command(subcommand)]
+        command: DaemonCommand,
+    },
     /// Read every mailbox bound to the receiving session, then acknowledge its reminder.
     Inbox {
         #[arg(long = "type", value_enum)]
@@ -239,4 +244,20 @@ pub enum AgmsgCommand {
 pub enum NotifyCommand {
     Once,
     Status,
+}
+
+#[derive(Subcommand)]
+pub enum DaemonCommand {
+    /// Start and install user-login supervision. Use --no-login for a detached process only.
+    Start {
+        #[arg(long)]
+        no_login: bool,
+    },
+    /// Stop the daemon and remove its user-login job.
+    Stop,
+    Status,
+    /// Run in the foreground for diagnosis.
+    Run,
+    #[command(hide = true)]
+    Launch,
 }

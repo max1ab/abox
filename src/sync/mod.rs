@@ -248,7 +248,7 @@ impl Context {
         }
         Ok(lock)
     }
-    async fn request(&self, method: Method, route: &str, body: Option<Value>) -> Result<Value> {
+    async fn request(&mut self, method: Method, route: &str, body: Option<Value>) -> Result<Value> {
         let url = self
             .base_url
             .join(route)

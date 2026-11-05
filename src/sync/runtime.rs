@@ -13,7 +13,7 @@ use std::{
 };
 use tokio::sync::Notify;
 
-pub(super) fn directory(root: &Path, team: &str) -> Result<PathBuf> {
+pub(crate) fn directory(root: &Path, team: &str) -> Result<PathBuf> {
     crate::store::team_name(team)?;
     Ok(root.join("run/native-sync").join(team))
 }
@@ -131,6 +131,7 @@ impl Drop for Published {
 
 /// Send failure never turns an already-committed send into a reported failure.
 pub(crate) fn notify(root: &Path, team: &str) {
+    crate::daemon::wake(root);
     let result = (|| -> Result<()> {
         let endpoint: Endpoint = read_json(&directory(root, team)?.join("endpoint.json"))?;
         if !endpoint.valid() {
@@ -337,6 +338,7 @@ async fn run_engine(root: &Path, team: &str, interval: Duration) -> Result<()> {
             };
             let (delay,catch_up)=match outcome {
                 Ok(outcome)=>{
+                    crate::daemon::wake(root);
                     failures=0;
                     state.last_success_ms=Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64);
                     state.last_error=None;
@@ -383,7 +385,7 @@ async fn run_engine(root: &Path, team: &str, interval: Duration) -> Result<()> {
     let saved = write_json(&status_path, &state);
     result.and(saved)
 }
-async fn shutdown_signal() -> &'static str {
+pub(crate) async fn shutdown_signal() -> &'static str {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{SignalKind, signal};

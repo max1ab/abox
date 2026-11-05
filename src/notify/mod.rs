@@ -3,5 +3,5 @@ mod transport;
 pub(crate) use transport::{Delivery, Target, deliver};
 mod state;
 mod worker;
-pub(crate) use state::State;
-pub(crate) use worker::{inbox, once};
+pub(crate) use state::{State, now};
+pub(crate) use worker::{Report, inbox, once};

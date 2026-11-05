@@ -97,6 +97,7 @@ fn groups_for(
     Ok((groups, errors))
 }
 pub(crate) async fn once(root: &Path) -> Result<Report> {
+    crate::daemon::check_legacy(root)?;
     fs::create_dir_all(root.join("run")).map_err(|e| e.to_string())?;
     let lock = fs::OpenOptions::new()
         .read(true)
