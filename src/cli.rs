@@ -61,14 +61,6 @@ pub enum Command {
         #[command(subcommand)]
         command: SyncCommand,
     },
-    /// Export the stopped legacy board/profile SQLite database for Node import.
-    ExportLegacy {
-        #[arg(long)]
-        db: PathBuf,
-        /// A new JSON file; existing files are never overwritten.
-        #[arg(long)]
-        output: PathBuf,
-    },
     /// Check local agmsg and the shared service; does not verify sync or session wake.
     Doctor,
     /// Export the bundled Agent Mail skill; does not install or configure agmsg.

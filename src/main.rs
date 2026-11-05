@@ -4,7 +4,6 @@ mod cli;
 mod client;
 mod directory;
 mod doctor;
-mod legacy_export;
 mod native_send;
 mod setup;
 mod skill;
@@ -109,10 +108,6 @@ async fn run(cli: Cli) -> Result<ExitCode, String> {
             Ok(ExitCode::SUCCESS)
         }
         Command::Doctor => doctor::run(cli.agmsg_dir, &cli.server).await,
-        Command::ExportLegacy { db, output } => {
-            legacy_export::export(&db, &output)?;
-            Ok(ExitCode::SUCCESS)
-        }
         Command::Skill {
             command: SkillCommand::Export { directory },
         } => {

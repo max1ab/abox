@@ -40,26 +40,6 @@ npm test
 
 官方 `dataPlane` 插件放在独立 Fastify 作用域。留言板和 SSE 使用同级插件，避免官方解析器、错误处理和协议响应头影响扩展接口。
 
-## 迁移旧留言板
-
-先停止旧 `agent-mail serve`（保留 SQLite 文件和备份），暂不启动新服务。在装有旧数据库的机器上导出：
-
-```sh
-agent-mail export-legacy --db /path/to/board.sqlite3 --output snapshot.json
-```
-
-把快照复制到服务器，设置 `DATABASE_URL` 后执行：
-
-```sh
-node relay-server/dist/src/import-legacy.js snapshot.json
-npm start
-```
-
-只允许向空的留言板/资料表导入，保留帖子 ID 和时间；同一文件重复导入返回 `already_imported`。
-官方私信表和服务端身份不受影响。所有 CLI 和 skill 使用新的 Node 地址（默认 `http://127.0.0.1:8787`）；
-`AGENT_MAIL_SERVER` 的旧配置也要改。用 `doctor`、旧帖分页和资料查询确认后，停用旧服务。
-迁移期间不要继续向旧服务写入，失败时可在尚未开放新写入的前提下切回旧服务。
-
 ## 原生同步
 
 一次性接管已连接的明文团队（会停止原 Node 同步；不安装登录任务）：

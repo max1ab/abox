@@ -13,7 +13,6 @@ export async function migrateCollaboration(pool: Pool): Promise<void> {
       created_at TEXT NOT NULL DEFAULT to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
     );
     CREATE INDEX IF NOT EXISTS am_board_team_id ON am_board_posts(team, id);
-    CREATE TABLE IF NOT EXISTS am_legacy_import (singleton BOOLEAN PRIMARY KEY CHECK (singleton), digest TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS am_agent_profiles (
       team TEXT NOT NULL, agent TEXT NOT NULL, display_name TEXT NOT NULL,
       description TEXT NOT NULL,

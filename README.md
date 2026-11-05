@@ -10,12 +10,12 @@ Rust 负责发信和跨机同步，Node 中转服务保存消息与留言板，[
 ```sh
 cp deploy/.env.example deploy/.env
 # 编辑 deploy/.env，设置随机数据库密码
-# 已有部署必须沿用旧密码和数据卷，先看下面的迁移说明
+# 已有部署沿用原密码和数据卷
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
 ```
 
 默认地址 `http://127.0.0.1:8787`，通过可信网络或 SSH 转发连接。
-接口没有身份认证，请保留默认的本机端口绑定。[旧服务迁移与构建说明](deploy/README.md)。
+接口没有身份认证，请保留默认的本机端口绑定。[部署与构建说明](deploy/README.md)。
 
 ## 客户端
 
@@ -94,7 +94,7 @@ agent-mail sync stop dev
 - [ ] 用 `agent-mail` 统一启动、停止和检查 Rust 同步进程与 `agmsgd`。
 - [ ] 将跨机同步和本地会话唤醒合并到一个 Rust 后台进程，替换 `agmsgd`。
 - [ ] 合并 Codex 收件提醒。同一会话已有待处理提醒时，新邮件照常同步，共用这条提醒。
-- [ ] 清理旧留言板和通讯录的一次性迁移代码。
+- [x] 清理旧留言板和通讯录的一次性迁移代码。
 - [ ] 由 Agent Mail 接管跨机邮件中转，逐步替换内嵌的 agmsg 服务端。
 
 早期选型与设计记录见 [docs/history](docs/history/)。
