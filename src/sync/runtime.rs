@@ -249,6 +249,33 @@ async fn listen(
 }
 
 pub async fn run(root: &Path, team: &str, interval: Duration) -> Result<()> {
+    log_lifecycle(team, "engine.start", None);
+    let result = run_engine(root, team, interval).await;
+    if let Err(error) = &result {
+        log_lifecycle(team, "engine.error", Some(error));
+    }
+    log_lifecycle(
+        team,
+        "engine.exit",
+        Some(if result.is_ok() { "clean" } else { "error" }),
+    );
+    result
+}
+
+fn log_lifecycle(team: &str, event: &str, reason: Option<&str>) {
+    eprintln!(
+        "{}",
+        serde_json::json!({
+            "at_ms": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis(),
+            "pid": std::process::id(),
+            "team": team,
+            "event": event,
+            "reason": reason,
+        })
+    );
+}
+
+async fn run_engine(root: &Path, team: &str, interval: Duration) -> Result<()> {
     let _lock = EngineLock::acquire(root, team)?;
     // Invalid local bindings fail before publishing a live endpoint.
     drop(Context::open(root, team)?);
@@ -297,8 +324,14 @@ pub async fn run(root: &Path, team: &str, interval: Duration) -> Result<()> {
             write_json(&status_path,&state)?;
             let outcome=tokio::select! {
                 biased;
-                _=&mut shutdown=>break,
-                _=stop.notified()=>break,
+                reason=&mut shutdown=>{
+                    log_lifecycle(team,"engine.stop_requested",Some(reason));
+                    break;
+                },
+                _=stop.notified()=>{
+                    log_lifecycle(team,"engine.stop_requested",Some("IPC stop"));
+                    break;
+                },
                 stopped=&mut listener=>return Err(format!("native IPC listener stopped: {stopped:?}")),
                 result=super::cycle(root,team)=>result,
             };
@@ -326,8 +359,14 @@ pub async fn run(root: &Path, team: &str, interval: Duration) -> Result<()> {
             if catch_up { tokio::task::yield_now().await;continue; }
             tokio::select! {
                 biased;
-                _=&mut shutdown=>break,
-                _=stop.notified()=>break,
+                reason=&mut shutdown=>{
+                    log_lifecycle(team,"engine.stop_requested",Some(reason));
+                    break;
+                },
+                _=stop.notified()=>{
+                    log_lifecycle(team,"engine.stop_requested",Some("IPC stop"));
+                    break;
+                },
                 stopped=&mut listener=>return Err(format!("native IPC listener stopped: {stopped:?}")),
                 _=wake.notified()=>{},
                 _=tokio::time::sleep(delay)=>{},
@@ -344,16 +383,19 @@ pub async fn run(root: &Path, team: &str, interval: Duration) -> Result<()> {
     let saved = write_json(&status_path, &state);
     result.and(saved)
 }
-async fn shutdown_signal() {
+async fn shutdown_signal() -> &'static str {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{SignalKind, signal};
         if let Ok(mut term) = signal(SignalKind::terminate()) {
-            tokio::select! { _=tokio::signal::ctrl_c()=>{}, _=term.recv()=>{} }
-            return;
+            return tokio::select! {
+                _=tokio::signal::ctrl_c()=>"Ctrl+C",
+                _=term.recv()=>"SIGTERM",
+            };
         }
     }
     let _ = tokio::signal::ctrl_c().await;
+    "Ctrl+C"
 }
 
 /// Spawn without inheriting agent/SSH output pipes. The child, not its PID or
