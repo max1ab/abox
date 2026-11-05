@@ -4,7 +4,7 @@ use crate::{cli::AgentType, registry, store::TeamLock};
 use std::{collections::BTreeMap, env, fs, path::Path};
 
 type Result<T> = std::result::Result<T, String>;
-fn encode(name: &str) -> String {
+pub(crate) fn encode(name: &str) -> String {
     name.bytes()
         .map(|b| {
             if b.is_ascii_alphanumeric() || b"._-".contains(&b) {
@@ -15,7 +15,7 @@ fn encode(name: &str) -> String {
         })
         .collect()
 }
-fn read(path: &Path) -> Result<BTreeMap<String, String>> {
+pub(crate) fn read(path: &Path) -> Result<BTreeMap<String, String>> {
     let text = match fs::symlink_metadata(path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
         Err(e) => return Err(e.to_string()),

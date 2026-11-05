@@ -7,6 +7,8 @@ mod doctor;
 mod import;
 mod mailbox;
 mod native_send;
+#[allow(dead_code, unused_imports)] // Adapter integration follows in the next commit.
+mod notify;
 mod registry;
 mod remote;
 mod session;
