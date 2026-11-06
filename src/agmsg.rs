@@ -70,13 +70,7 @@ impl Agmsg {
         if let Some(root) = std::env::var_os("AGENT_MAIL_AGMSG_DIR").filter(|v| !v.is_empty()) {
             return Ok(crate::store::native_path(Path::new(&root)));
         }
-        let home = crate::store::home()?;
-        let old = home.join(".agents/skills/agmsg");
-        if old.join("VERSION").is_file() {
-            Ok(old)
-        } else {
-            Ok(home.join(".agent-mail"))
-        }
+        Ok(default_location(&crate::store::home()?))
     }
 
     pub fn new(root: Option<PathBuf>) -> Result<Self, String> {
@@ -104,5 +98,36 @@ impl Agmsg {
 
     pub fn members(&self, team: &str) -> Result<Vec<Member>, String> {
         crate::mailbox::members(&self.root, team)
+    }
+}
+
+/// A migrated skill/data root is selected only after its format marker exists.
+fn default_location(home: &Path) -> PathBuf {
+    for relative in [".agents/skills/agent-mail", ".agents/skills/agmsg"] {
+        let root = home.join(relative);
+        if root.join("VERSION").is_file() {
+            return root;
+        }
+    }
+    home.join(".agent-mail")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn migrated_data_root_takes_precedence_but_a_skill_alone_does_not() {
+        let t = tempfile::tempdir().unwrap();
+        let home = t.path();
+        let native = home.join(".agents/skills/agent-mail");
+        let old = home.join(".agents/skills/agmsg");
+        std::fs::create_dir_all(&native).unwrap();
+        std::fs::write(native.join("SKILL.md"), "skill only").unwrap();
+        assert_eq!(default_location(home), home.join(".agent-mail"));
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("VERSION"), "1.7.0").unwrap();
+        assert_eq!(default_location(home), old);
+        std::fs::write(native.join("VERSION"), "1.7.0").unwrap();
+        assert_eq!(default_location(home), native);
     }
 }

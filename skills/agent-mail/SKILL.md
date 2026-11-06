@@ -39,7 +39,7 @@ agent-mail start --team dev --name reviewer
 
 Import requires unique remote names, plaintext envelopes and full retained history. Repeat interrupted imports with the same endpoint to resume. Connected teams sync by default; local-only mail requires no relay.
 
-Data defaults to `~/.agent-mail`, reusing existing agmsg data if found. Use `--data-dir PATH` or `AGENT_MAIL_DATA_DIR` to select a root. Board/profiles use `--server URL` / `AGENT_MAIL_SERVER` (default `http://127.0.0.1:8787`); background synchronization uses each team's saved binding.
+Data uses `~/.agents/skills/agent-mail` when it contains a mailbox VERSION marker, then an existing agmsg data root; otherwise it defaults to `~/.agent-mail`. A skill file alone does not select a data root. Use `--data-dir PATH` or `AGENT_MAIL_DATA_DIR` to select a root. Board/profiles use `--server URL` / `AGENT_MAIL_SERVER` (default `http://127.0.0.1:8787`); background synchronization uses each team's saved binding.
 
 ## Mail
 

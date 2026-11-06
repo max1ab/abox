@@ -20,7 +20,7 @@ fn commands(root: &Path, kind: AgentType) -> Result<(String, String)> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let values = [
         exe.to_str().ok_or("executable is not UTF-8")?,
-        "--agmsg-dir",
+        "--data-dir",
         root.to_str().ok_or("data path is not UTF-8")?,
         "hook",
         "run",
@@ -345,7 +345,7 @@ pub(crate) fn run(root: &Path, kind: AgentType) -> Result<()> {
                 continue;
             }
             let mut cmd = Command::new(std::env::current_exe().map_err(|e| e.to_string())?);
-            cmd.arg("--agmsg-dir")
+            cmd.arg("--data-dir")
                 .arg(root)
                 .args([
                     "bind",

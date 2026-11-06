@@ -221,9 +221,9 @@ fn spawn(root: &Path) -> Result<()> {
         .open(directory(root).join("daemon.log"))
         .map_err(|e| e.to_string())?;
     let mut cmd = std::process::Command::new(std::env::current_exe().map_err(|e| e.to_string())?);
-    cmd.arg("--agmsg-dir")
+    cmd.arg("--data-dir")
         .arg(root)
-        .args(["daemon", "launch"])
+        .args(["service", "launch"])
         .stdin(std::process::Stdio::null())
         .stdout(log.try_clone().map_err(|e| e.to_string())?)
         .stderr(log);

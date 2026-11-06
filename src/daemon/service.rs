@@ -92,7 +92,7 @@ pub(super) fn spawn_detached(root: &Path) -> Result<()> {
     let executable = env::current_exe().map_err(|e| e.to_string())?;
     let path = executable.to_str().ok_or("executable path is not UTF-8")?;
     let root = root.to_str().ok_or("installation path is not UTF-8")?;
-    let line = [path, "--agmsg-dir", root, "daemon", "launch"]
+    let line = [path, "--data-dir", root, "service", "launch"]
         .iter()
         .map(|a| win_arg(a))
         .collect::<Vec<_>>()
@@ -197,7 +197,7 @@ pub fn install(root: &Path) -> Result<()> {
         fs::create_dir_all(path.parent().ok_or("missing launch agent directory")?)
             .map_err(|e| e.to_string())?;
         let text = format!(
-            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\"><plist version=\"1.0\"><dict><key>Label</key><string>{}</string><key>ProgramArguments</key><array><string>{}</string><string>--agmsg-dir</string><string>{}</string><string>daemon</string><string>launch</string></array><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>10</integer></dict></plist>",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\"><plist version=\"1.0\"><dict><key>Label</key><string>{}</string><key>ProgramArguments</key><array><string>{}</string><string>--data-dir</string><string>{}</string><string>service</string><string>launch</string></array><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>10</integer></dict></plist>",
             xml(&name),
             xml(exe),
             xml(root_text)
@@ -218,7 +218,7 @@ pub fn install(root: &Path) -> Result<()> {
             )
         };
         let text = format!(
-            "[Unit]\nDescription=Agent Mail background service\n[Service]\nExecStart={} --agmsg-dir {} daemon launch\nRestart=on-failure\nRestartSec=5\n[Install]\nWantedBy=default.target\n",
+            "[Unit]\nDescription=Agent Mail background service\n[Service]\nExecStart={} --data-dir {} service launch\nRestart=on-failure\nRestartSec=5\n[Install]\nWantedBy=default.target\n",
             quote(exe),
             quote(root_text)
         );
@@ -229,7 +229,7 @@ pub fn install(root: &Path) -> Result<()> {
     #[cfg(windows)]
     {
         let exe = scheduler_executable(exe);
-        let arguments = ["--agmsg-dir", root_text, "daemon", "launch"]
+        let arguments = ["--data-dir", root_text, "service", "launch"]
             .iter()
             .map(|a| win_arg(a))
             .collect::<Vec<_>>()

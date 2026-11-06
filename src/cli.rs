@@ -8,9 +8,10 @@ use clap::{Parser, Subcommand, ValueEnum};
     about = "Private agent mail, team members and a silent shared board"
 )]
 pub struct Cli {
-    /// Local data root; defaults to ~/.agent-mail, reusing an existing agmsg data root.
+    /// Data root; reuses a marked agent-mail/agmsg skill data directory, otherwise ~/.agent-mail.
     #[arg(
         long = "data-dir",
+        value_name = "PATH",
         alias = "agmsg-dir",
         global = true,
         env = "AGENT_MAIL_DATA_DIR"
