@@ -23,69 +23,78 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
 cargo install --path . --locked
 ```
 
-在接收消息的 Agent 会话中执行：
+首次在项目中安装钩子和 skill：
 
 ```sh
-agent-mail --server http://127.0.0.1:8787 team import dev
-agent-mail join dev --name worker --type codex
-agent-mail bind dev --name worker --type codex
-agent-mail hook install --type codex
-agent-mail daemon start
+agent-mail setup --type codex
 ```
 
-Claude Code 改用 `--type claude-code`。会话 ID 无法自动读取时，给 `bind` 传 `--session-id <实际UUID>`。
-新 Codex 钩子需通过 `/hooks` 查看并信任，安装器不会替你批准；见 [Codex 钩子文档](https://learn.chatgpt.com/docs/hooks)。Claude Windows 钩子使用 [官方支持的 PowerShell 方式](https://code.claude.com/docs/en/hooks#windows-powershell-tool)。
-安装钩子后按 Agent 的要求重新加载。已打开的会话也可以先手动绑定，钩子负责后续更新会话信息。
+Claude Code 用 `--type claude-code`。Codex 通过 `/hooks` 查看并信任新钩子，随后按 Agent 要求重新加载钩子和 skill。安装器保留其他配置，不替你修改信任和权限；见 [Codex 文档](https://learn.chatgpt.com/docs/hooks)和 [Claude 文档](https://code.claude.com/docs/en/hooks)。
 
-把 skill 导出到项目，再让 Agent 重新加载：
+在接收邮件的 Agent 会话内，创建本地团队并加入：
 
 ```sh
-agent-mail skill export .agents/skills/agent-mail
-# Claude Code 使用 .claude/skills/agent-mail
+agent-mail start --team dev --name worker --create
 ```
 
-创建新团队时，第一条命令换成 `agent-mail join dev --create --name worker --type codex`，再用 `agent-mail --server URL team connect dev` 注册到中转。
-导入支持名称唯一、历史完整的明文团队；中断后重复同一导入命令即可续传。
+它会注册身份、绑定当前会话，并启动后台服务。另一个会话用不同名字执行同一命令即可加入；已有团队不必加 `--create`。
+Agent 类型通常从运行环境推断；读取不到时传 `--type codex --session-id <实际UUID>`。换绑到新会话须明确加 `--replace`。
 
-数据默认保存在 `~/.agent-mail`；已有 agmsg 数据会自动沿用。可用 `--data-dir PATH` 或 `AGENT_MAIL_DATA_DIR` 指定，旧 `--agmsg-dir` 仍可用。
-`--server` 用于导入、连接、留言板和资料；后台同步使用团队保存的中转地址。
+跨机器使用同一个中转地址：
+
+```sh
+# 首台机器：把本地团队连接到中转
+agent-mail --server URL team connect dev
+# 其他机器：导入团队，然后在接收会话中加入
+agent-mail --server URL team import dev
+agent-mail start --team dev --name reviewer
+```
+
+导入支持名称唯一、历史完整的明文团队；中断后重复同一命令续传。连接后的团队默认由后台同步。
+数据默认在 `~/.agent-mail`，已有 agmsg 数据会自动沿用；用 `--data-dir PATH` 或 `AGENT_MAIL_DATA_DIR` 指定。
+`--server URL` 用于团队导入、连接、留言板和资料；后台同步使用团队保存的地址。
 
 ## 使用
 
-告诉 Agent：
-
-> 你是 dev/worker。查通讯录，给 reviewer 发任务：检查当前改动，把结论放到留言板并回复我。
-
-或直接执行：
+在已绑定的会话中：
 
 ```sh
-agent-mail agmsg send dev --from worker --to reviewer --body-file task.txt
-agent-mail agmsg inbox dev worker
-agent-mail directory list dev
-agent-mail board list dev
+agent-mail list
+agent-mail send reviewer --file task.txt
+agent-mail inbox
+agent-mail history
+agent-mail --server URL board post --body-file focus.txt
+agent-mail --server URL board list
+agent-mail status
 ```
 
-收到 `[agent-mail:…]` 提醒后，执行其中带 `--notification` 的收件命令。它会读取该会话所有团队的邮箱并确认提醒；手动读取单个邮箱不会清除尚在桌面队列中的提醒。
-一个邮箱同一时间绑定一个接收会话，换绑使用 `bind --replace`。留言板完全静默，需要对方处理就发私信。
+`send` 自动使用当前会话身份，不能用 `--from` 临时冒用其他名字。同一会话属于多个团队时，发信、查历史和留言板加 `--team dev`；`list --team dev` 筛选成员。成员已注册不代表在线。邮件和成员列表不需要中转，留言板和资料需要。
+`--file` 是 `--body-file` 的简写，也可用 `--stdin` 从管道读取正文。上述邮件正文来自文件，不会把正文作为命令执行。
+
+收到 `[agent-mail:…]` 提醒后，执行其中带 `--notification` 的收件命令，读取该会话所有团队的邮箱并确认提醒。普通 `inbox` 只读邮件，不清除仍在桌面队列中的提醒。
+留言板静默，需要对方处理就发私信。`profile list/get/set` 查看或维护远程成员资料，细节见 `--help`。
 
 ## 后台与排错
 
 ```sh
-agent-mail daemon status
-agent-mail notify status
-agent-mail daemon stop
+agent-mail status
+agent-mail service stop
+agent-mail service start
+agent-mail debug sync status dev
 ```
 
-`daemon start` 配置用户登录后启动，`stop` 同时移除该登录任务；临时试用可加 `start --no-login`。
-服务独立于 Agent 会话运行，关闭聊天不会停止它；Linux 用户服务是否在注销后继续运行取决于系统设置。
-日志在数据目录的 `run/daemon/daemon.log`。`sync status TEAM` 查看团队同步结果，`sync stop/start TEAM` 单独暂停或恢复一个团队。
+后台独立于聊天运行；默认安装用户登录启动任务，`service stop` 会同时移除任务。临时试用给 `start` 或 `service start` 加 `--no-login`。
+Linux 用户服务是否在注销后继续运行取决于系统设置。日志在数据目录的 `run/daemon/daemon.log`。
+`debug sync stop/start TEAM` 单独暂停或恢复团队；`debug hook` 管理钩子，`debug notify status` 查看通知明细。
 
-通知状态 `accepted` 只代表提交成功，`unknown` 表示结果不确定，后台不会自动重复发送。收到提醒后按其中命令收件，或在目标会话中使用状态里的 nonce 收件，即可确认。
-桌面挂起、Zed Agent Panel 支持程度和真实 Windows 会话通知仍需分别验证，后台运行不代表会话一定已响应。
+通知 `accepted` 只代表提交成功；`unknown` 表示结果不确定，不自动重发。后台正常不代表会话已响应；桌面挂起、Zed Agent Panel 和真实 Windows 会话仍需验收。
 
-已有 agmsg 安装首次切换前，先停用旧 agmsgd。JSON 中旧钩子可用 `hook install --type codex --replace-agmsg` 替换；内联在 `config.toml` 的旧钩子需先移除。安装器保留其他钩子并备份配置，不改信任和权限设置。新后台会移除本数据目录旧的 Rust 团队登录任务。
+已有 agmsg 安装先停用旧 agmsgd；旧 JSON 钩子可用 `setup --type codex --replace-agmsg` 替换，`config.toml` 中旧内联钩子需先移除。目标 skill 已存在且内容不同会停止安装，请先审阅或通过 `--skill-dir PATH` 选择目录。
+旧命令暂作隐藏兼容入口，日常使用以上命令即可。
 
 ## TODO
+
+- [x] 收敛 CLI：setup/start、直接收发、会话身份推断及统一诊断。
 
 - [ ] 定位历史同步进程停止原因；统一后台已记录启动、退出和错误日志。
 - [ ] 验证桌面会话长时间挂起后的通知延迟，以及 Zed Agent Panel 的接收行为。

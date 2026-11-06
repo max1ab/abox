@@ -88,7 +88,7 @@ pub fn bind(
     }
     if !registry::registered(&config, name, kind, &project) {
         return Err(
-            "identity is not registered for this project and Agent type; run join first".into(),
+            "identity is not registered for this project and Agent type; run agent-mail start first".into(),
         );
     }
     let run = root.join("run");
@@ -225,8 +225,6 @@ pub fn bind(
         return Err("session binding was not recorded".into());
     }
     crate::daemon::wake(root);
-    println!(
-        "Bound {team}/{name} to {session}. Start agent-mail daemon and install the native hooks for ongoing delivery."
-    );
+    println!("Bound {team}/{name} to {session}.");
     Ok(())
 }

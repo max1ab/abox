@@ -25,7 +25,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
 
 更新后检查健康接口、私信收发、留言板和通讯录。数据库表结构由服务启动时初始化。
 
-客户端运行 `agent-mail daemon start`，一个后台负责全部已连接团队及本地通知。`daemon stop` 停止后台并移除用户登录任务；`sync stop/start <team>` 单独暂停或恢复团队。首次替换旧安装须先停用 agmsgd 和旧钩子，避免双引擎。
+客户端运行 `agent-mail service start`，一个后台负责全部已连接团队及本地通知。`service stop` 停止后台并移除用户登录任务；`debug sync stop/start <team>` 单独暂停或恢复团队。首次替换旧安装须先停用 agmsgd 和旧钩子，避免双引擎。
 
 ## 构建客户端
 

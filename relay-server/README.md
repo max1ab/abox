@@ -45,9 +45,9 @@ npm test
 客户端的注册、绑定、收发、同步与提醒已由 Rust 实现。中转继续使用固定的官方协议数据面。
 
 ```sh
-agent-mail daemon start
-agent-mail daemon status
-agent-mail sync status <team>
+agent-mail service start
+agent-mail status
+agent-mail debug sync status <team>
 ```
 
 一个后台管理全部已连接团队和本机通知。各团队同步独立退避，远程离线不会阻止本地邮件提醒。
@@ -55,7 +55,7 @@ agent-mail sync status <team>
 同步沿用已有 SQLite 映射、成员日志和游标，每轮最多上传 10 条私信和 10 条成员变更，拉取 10 条记录，再连续补齐积压。
 加密团队、历史保留缺口或冲突会明确报错；这些错误不代表团队内没有消息。
 
-`sync stop/start <team>` 单独暂停或恢复一个团队，不再交回 Node；`daemon stop` 停止整个后台并移除登录任务。
+`debug sync stop/start <team>` 单独暂停或恢复一个团队，不再交回 Node；`service stop` 停止整个后台并移除登录任务。
 调试单团队可在暂停后台该团队后使用 `sync run <team>` 或 `sync once <team>`，同一团队不能运行两个同步操作。
 后台日志位于数据目录 `run/daemon/daemon.log`；团队同步记录仍保存在 `run/native-sync/`。
 

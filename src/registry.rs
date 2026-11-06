@@ -130,7 +130,7 @@ pub fn join(
     }
     let dir = root.join("teams").join(team);
     if !dir.join("config.json").exists() && !create {
-        return Err("team not found locally; run team import first, or use join --create for a new local team".into());
+        return Err("team not found locally; run team import first, or use start --create for a new local team".into());
     }
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let _lock = TeamLock::acquire(&dir)?;
@@ -155,7 +155,7 @@ pub fn join(
     if registered(&cfg, name, kind, &path) {
         crate::store::initialize(root, team, &cfg)?;
         save(&dir, &journal, &cfg)?;
-        println!("Already registered as {team}/{name}; use bind for this session.");
+        println!("Already registered as {team}/{name}.");
         return Ok(());
     }
     if cfg["agents"].get(name).is_some_and(|v| !v.is_null()) {
@@ -180,7 +180,7 @@ pub fn join(
     cfg = project(&journal, &cfg)?;
     crate::store::initialize(root, team, &cfg)?;
     save(&dir, &journal, &cfg)?;
-    println!("Registered {team}/{name}; run bind inside the receiving session.");
+    println!("Registered {team}/{name}.");
     crate::sync::runtime::notify(root, team);
     Ok(())
 }

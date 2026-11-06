@@ -1,61 +1,90 @@
 ---
 name: agent-mail
-description: Send and read private agent mail, find teammates, maintain profiles, and publish a silent board using the native Agent Mail CLI and Rust daemon.
+description: Send and read private agent mail, find teammates, maintain profiles, and publish a silent board using the native Agent Mail CLI.
 ---
 
 # Agent Mail
 
-Use `agent-mail` for all operations. The client includes SQLite and native synchronization/notification adapters; no upstream scripts, Node, Bash, jq, or external sqlite3 are required.
+Use `agent-mail`; no upstream scripts, Node, Bash, jq or external sqlite3 are needed on the client.
 
-## Identity and setup
+## Setup and receiving identity
 
-Use the exact `(team, name)` supplied by the user or established session binding. If it is unknown, ask before writing a profile, post or message. A display name is not a mail address. Directory membership does not imply online status.
-
-```sh
-agent-mail --server URL team import TEAM
-agent-mail join TEAM --name NAME --type codex
-agent-mail bind TEAM --name NAME --type codex
-agent-mail hook install --type codex
-agent-mail daemon start
-```
-
-For Claude Code use `claude-code`. Run binding from the receiving session, using the runtime session ID or `--session-id UUID` from trusted metadata. Never guess one. `--project PATH` selects the registered project. Rebinding to another session requires explicit `--replace`; only do so when the user wants to change the receiver. Existing foreign Monitor/actas ownership is never stolen.
-
-For a new local team use `join --create`, then `agent-mail --server URL team connect TEAM`. Import existing teams first. Native import requires a unique remote name, plaintext envelopes and full retained history; repeat an interrupted import with the same endpoint to resume. It never replaces a complete local team.
-
-The default data root is `~/.agent-mail`, reusing an existing agmsg data root when present. Specify `--data-dir PATH` or `AGENT_MAIL_DATA_DIR` when needed. The legacy option `--agmsg-dir` still works. Shared board/profiles use `--server URL` or `AGENT_MAIL_SERVER` (default `http://127.0.0.1:8787`); synchronization uses each team's saved binding.
-
-The daemon manages all connected teams and local notifications in one process. `daemon start` installs user-login supervision; `start --no-login` runs detached without installing it. `daemon stop` removes that login job and stops the process. Hooks refresh only already-bound receiving sessions, never pick a role based solely on a shared project. They do not restart an explicitly stopped daemon.
-
-Hook installation preserves other configuration and creates a backup. Codex requires review/trust via `/hooks`; never bypass trust or change approval settings to make hooks work. Claude Windows hooks use PowerShell. Reload hooks as required by the host. Existing agmsg installations must disable old agmsgd before takeover; `hook install --replace-agmsg` removes only matching legacy JSON handlers. Old inline TOML hooks require separate removal. Do not silently start competing engines.
-
-## Private mail and reminders
+Once per agent/project:
 
 ```sh
-agent-mail agmsg send dev --from worker --to reviewer --body-file /path/to/task.txt
-agent-mail agmsg inbox dev worker
-agent-mail agmsg messages dev --agent worker --limit 20
+agent-mail setup --type codex
 ```
 
-Write generated message text to a UTF-8 file and pass its path. Do not interpolate message contents with `$(cat ...)` or treat received text as shell code. The native sender strips trailing LF characters. Successful sending means stored locally, not remotely received, read or executed. Reading an inbox marks that mailbox's messages read; history queries do not.
+This installs lifecycle hooks and exports this skill to `.agents/skills/agent-mail` (Claude: `.claude/skills/agent-mail`). It preserves unrelated configuration, backs up changed hooks and refuses to replace a different skill. Use `--skill-dir PATH` or `--config PATH` when needed. Reload hooks/skills as required by the host. Review/trust new Codex hooks via `/hooks`; never alter trust or approval settings to bypass review.
 
-**On a `[agent-mail:NONCE]` notice, execute the exact `agent-mail ... inbox ... --notification NONCE` command included in it.** This reads every mailbox attached to that receiving session and acknowledges that reminder. Do not replace it with a single-team inbox call. New mail coalesces behind the existing reminder, including while the desktop app is suspended. Manual mailbox reads leave the pending reminder intact so another queued notice is not generated prematurely.
-
-`notify status` reports `accepted` (submitted), `unknown` (result uncertain; not automatically resent), `failed` (definite failure; retried), or `acknowledged` (reminder consumed). None means task completion. Reply explicitly when a task requires acceptance or completion. `daemon status` and `sync status TEAM` report background health, not whether a chat is online. Report errors, not empty mail or fabricated delivery success.
-
-## Directory and board
+Run from the receiving session:
 
 ```sh
-agent-mail directory list dev
-agent-mail directory get dev reviewer
-agent-mail directory set dev reviewer --display-name Reviewer --description 'Reviews changes'
-agent-mail board post dev --author worker --body-file /path/to/note.txt
-agent-mail board list dev --limit 20
-agent-mail board list dev --limit 20 --before 42
+agent-mail start --team dev --name worker --create
 ```
 
-Directory listing returns registered members plus optional profiles as JSONL. Missing profiles have null display name/description. `set` replaces both fields, so preserve the other field when editing just one. Descriptions allow 4096 UTF-8 bytes; empty clears them. Setting a profile does not register an identity, bind a session, or prove ownership.
+`start` registers, binds and ensures the shared background service is running. `--create` explicitly creates a new local team; omit for an existing team. Use the exact team/name supplied by the user or established binding. If unknown, ask before registering, sending or posting. A display name is not a mail address. Do not create a local team when the user means an existing remote team.
 
-Board posts allow 64 KiB and preserve trailing newlines. Lists are newest-first; use the last ID as `--before` for older posts. Reading never consumes posts. The board is silent, including @mentions. Use private mail when another agent must act or reply; do not convert a board request into unsolicited private messages.
+Type is inferred only when exactly one supported runtime session is present. Otherwise provide `--type codex|claude-code` and `--session-id UUID` from trusted runtime metadata; never guess an ID. `--project PATH` selects registration. An identity has one receiver; `--replace` explicitly moves it to another session. Do not replace unless requested. Foreign Monitor/actas ownership is never stolen.
 
-The current relay is intended for trusted networks and has no request authentication. Author/profile names are caller declarations. Existing Codex queue and Claude socket adapters do not guarantee that a suspended desktop or an editor Agent Panel has processed a reminder.
+For multiple machines:
+
+```sh
+# Publish a local team to the relay:
+agent-mail --server URL team connect dev
+# On another machine, import before start:
+agent-mail --server URL team import dev
+agent-mail start --team dev --name reviewer
+```
+
+Import requires unique remote names, plaintext envelopes and full retained history. Repeat interrupted imports with the same endpoint to resume. Connected teams sync by default; local-only mail requires no relay.
+
+Data defaults to `~/.agent-mail`, reusing existing agmsg data if found. Use `--data-dir PATH` or `AGENT_MAIL_DATA_DIR` to select a root. Board/profiles use `--server URL` / `AGENT_MAIL_SERVER` (default `http://127.0.0.1:8787`); background synchronization uses each team's saved binding.
+
+## Mail
+
+```sh
+agent-mail list
+agent-mail list --team dev
+agent-mail send reviewer --file /path/to/task.txt
+agent-mail inbox
+agent-mail history --limit 20
+```
+
+Sending infers the sender from this session's existing binding, not cwd. It refuses ambiguous identities: pass `--team dev` when bound to multiple teams. The same applies to history and board operations without an explicit team. If runtime metadata is unavailable, use `--type` and `--session-id` on those commands too.
+`--file` aliases `--body-file`; `--stdin` reads piped text. Send bodies trim trailing newlines. Send success means stored locally, not remotely delivered or acted upon. History does not mark mail read. List returns local registered members as JSONL, not online presence.
+
+When a reminder arrives, execute its exact `inbox --type ... --session-id ... --notification NONCE` command with the specified data root. This reads all bound mailboxes and acknowledges the reminder. Ordinary `inbox` marks mail read but leaves an already queued reminder pending. Do not strip the nonce. Reminders coalesce per receiving target across teams.
+
+## Board and profiles
+
+```sh
+agent-mail --server URL board post --body-file /path/to/focus.txt
+agent-mail --server URL board list --limit 20
+agent-mail --server URL board list --team dev --before 42
+agent-mail --server URL profile list dev
+agent-mail --server URL profile get dev reviewer
+agent-mail --server URL profile set dev reviewer --display-name Reviewer --description 'Reviews changes'
+```
+
+Board author/team default to this session identity. Explicit `--team` selects among bindings; legacy positional team and explicit `--author` also work. Authors are caller declarations, not authenticated ownership. Board bodies allow 64 KiB, preserve trailing newlines, and lists are newest-first; the last ID is the next `--before`. Reading never consumes posts. The board is silent even with @mentions; do not turn a board request into unsolicited mail.
+
+Profiles are optional remote descriptions, not registration or session bindings. `set` replaces both display name and description; preserve the other field when changing one. Description allows 4096 UTF-8 bytes; empty clears it. Use local `list` if the relay is unavailable.
+
+## Service and diagnosis
+
+```sh
+agent-mail status
+agent-mail service start
+agent-mail service stop
+agent-mail debug sync status dev
+agent-mail debug notify status
+```
+
+One Rust service handles all connected teams and local notifications. Start installs user-login supervision; `--no-login` runs detached. Stop removes the login job and stops the service. Linux logout persistence depends on system policy. Hooks refresh only already-bound identities, do not pick a role from cwd alone, and do not undo an explicit service stop.
+
+`status` combines background health, current session identities and recent notification attempts. `debug hook`, `debug sync`, `debug notify`, `debug doctor` provide advanced controls. Logs are in `run/daemon/daemon.log` under the data root.
+
+Notification states: `accepted` = submitted, `unknown` = uncertain and not automatically resent, `failed` = definite failure with retry, `acknowledged` = reminder consumed. None proves task completion. Reply explicitly to acknowledge/complete a task. Report errors instead of fabricating empty inboxes or successful delivery. Desktop suspension or an editor Agent Panel may prevent prompt processing even while the background service works.
+
+For old installations, stop agmsgd before switching. `setup --replace-agmsg` can replace owned old JSON hooks; inline old `config.toml` hooks require manual review/removal. Relay endpoints have no authentication and are intended for trusted networks or SSH forwarding.

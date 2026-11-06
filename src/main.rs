@@ -7,6 +7,7 @@ mod daemon;
 mod directory;
 mod doctor;
 mod hooks;
+mod identity;
 mod import;
 mod mailbox;
 mod native_send;
@@ -68,8 +69,136 @@ fn main() -> ExitCode {
     }
 }
 
-async fn run(cli: Cli) -> Result<ExitCode, String> {
+async fn run(mut cli: Cli) -> Result<ExitCode, String> {
+    if let Command::Debug { command } = cli.command {
+        cli.command = match command {
+            cli::DebugCommand::Hook { command } => Command::Hook { command },
+            cli::DebugCommand::Notify { command } => Command::Notify { command },
+            cli::DebugCommand::Sync { command } => Command::Sync { command },
+            cli::DebugCommand::Doctor => Command::Doctor,
+            cli::DebugCommand::Skill { command } => Command::Skill { command },
+        };
+    }
     match cli.command {
+        Command::Debug { .. } => unreachable!(),
+        Command::Setup {
+            agent_type,
+            config,
+            skill_dir,
+            replace_agmsg,
+        } => {
+            let kind = agent_type.map(Ok).unwrap_or_else(identity::infer_type)?;
+            let local = agmsg::Agmsg::for_setup(cli.agmsg_dir)?;
+            let directory = skill_dir.unwrap_or_else(|| {
+                std::path::PathBuf::from(match kind {
+                    cli::AgentType::Codex => ".agents/skills/agent-mail",
+                    cli::AgentType::ClaudeCode => ".claude/skills/agent-mail",
+                })
+            });
+            // Refuse a different skill before changing agent hook configuration.
+            skill::check_install(&directory)?;
+            hooks::install(local.root(), kind, config, replace_agmsg, false)?;
+            let path = skill::install(&directory)?;
+            eprintln!(
+                "Skill installed at {}. Reload skills and review new hooks in your agent.",
+                path.display()
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Start {
+            team,
+            name,
+            session,
+            project,
+            create,
+            replace,
+            no_login,
+        } => {
+            // Validate runtime evidence before creating an identity or a team.
+            let (kind, id) = identity::runtime(session.agent_type, session.session_id)?;
+            let local = agmsg::Agmsg::for_setup(cli.agmsg_dir)?;
+            daemon::check_legacy(local.root())?;
+            if identity::bindings(local.root(), kind, &id)?
+                .iter()
+                .any(|v| v.team == team && v.name != name)
+            {
+                return Err("this session already has another identity in this team; use that identity or a different receiving session".into());
+            }
+            setup::join(&local, &team, &name, kind, &project, create)?;
+            setup::bind(&local, &team, &name, kind, &project, Some(id), replace)?;
+            client::print_jsonl([daemon::start(local.root(), no_login).await?])?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Send {
+            to,
+            team,
+            session,
+            body_file,
+            ..
+        } => {
+            let local = agmsg::Agmsg::new(cli.agmsg_dir)?;
+            let (kind, id) = identity::runtime(session.agent_type, session.session_id)?;
+            let sender = identity::resolve(local.root(), team.as_deref(), kind, &id)?;
+            local.send(&sender.team, &sender.name, &to, body_file.as_deref())?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::List { team } => {
+            let local = agmsg::Agmsg::new(cli.agmsg_dir)?;
+            let teams = match team {
+                Some(team) => vec![serde_json::json!({"name":team})],
+                None => mailbox::teams(local.root())?,
+            };
+            let mut entries = vec![];
+            for team in teams {
+                let name = team["name"].as_str().ok_or("invalid team name")?;
+                for member in local.members(name)? {
+                    entries.push(serde_json::json!({"team":name,"name":member.name,"types":member.types,"project":member.project}));
+                }
+            }
+            client::print_jsonl(entries)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::History {
+            team,
+            session,
+            agent,
+            limit,
+        } => {
+            let local = agmsg::Agmsg::new(cli.agmsg_dir)?;
+            let team = identity::team(local.root(), team, session.agent_type, session.session_id)?;
+            client::print_jsonl(mailbox::history(
+                local.root(),
+                &team,
+                agent.as_deref(),
+                limit,
+            )?)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Status => {
+            let local = agmsg::Agmsg::new(cli.agmsg_dir)?;
+            let current = match identity::runtime(None, None) {
+                Ok((kind, id)) => match identity::bindings(local.root(), kind, &id) {
+                    Ok(bindings) => {
+                        serde_json::json!({"type":kind.as_str(),"session_id":id,"identities":bindings})
+                    }
+                    Err(e) => serde_json::json!({"error":e}),
+                },
+                Err(e) => serde_json::json!({"error":e}),
+            };
+            // Status is observational: do not create a notification DB for an unused installation.
+            let notifications = if local.root().join("run/notifications.db").is_file() {
+                serde_json::to_value(notify::State::open(local.root())?.list()?)
+                    .map_err(|e| e.to_string())?
+            } else {
+                serde_json::json!([])
+            };
+            client::print_jsonl([serde_json::json!({
+                "service":daemon::status(local.root())?,
+                "current_session":current,
+                "notifications":notifications,
+            })])?;
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Hook { command } => {
             let local = agmsg::Agmsg::for_setup(cli.agmsg_dir)?;
             match command {
@@ -105,10 +234,11 @@ async fn run(cli: Cli) -> Result<ExitCode, String> {
             session_id,
             notification,
         } => {
+            let (kind, id) = identity::runtime(agent_type, session_id)?;
             notify::inbox(
                 agmsg::Agmsg::new(cli.agmsg_dir)?.root(),
-                agent_type,
-                session_id,
+                kind,
+                Some(id),
                 notification,
             )?;
             Ok(ExitCode::SUCCESS)
@@ -222,18 +352,44 @@ async fn run(cli: Cli) -> Result<ExitCode, String> {
                 BoardCommand::Post {
                     team,
                     author,
+                    selected_team,
+                    session,
                     body_file,
                     ..
                 } => {
+                    let explicit = team.or(selected_team);
+                    let (team, author) = if let (Some(team), Some(author)) = (&explicit, &author) {
+                        (team.clone(), author.clone())
+                    } else {
+                        let local = agmsg::Agmsg::new(cli.agmsg_dir)?;
+                        let (kind, id) = identity::runtime(session.agent_type, session.session_id)?;
+                        let sender =
+                            identity::resolve(local.root(), explicit.as_deref(), kind, &id)?;
+                        (sender.team, author.unwrap_or(sender.name))
+                    };
                     let body = client::read_body(body_file.as_deref())?;
                     let post = client.publish(team, author, body).await?;
                     client::print_jsonl([post])?;
                 }
                 BoardCommand::List {
                     team,
+                    selected_team,
+                    session,
                     limit,
                     before,
                 } => {
+                    let team = match team.or(selected_team) {
+                        Some(team) => team,
+                        None => {
+                            let local = agmsg::Agmsg::new(cli.agmsg_dir)?;
+                            identity::team(
+                                local.root(),
+                                None,
+                                session.agent_type,
+                                session.session_id,
+                            )?
+                        }
+                    };
                     client::print_jsonl(client.list(&team, limit, before).await?)?;
                 }
             }

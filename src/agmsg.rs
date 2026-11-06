@@ -46,7 +46,7 @@ impl Agmsg {
         if !marker.try_exists().map_err(|e| e.to_string())? {
             for entry in fs::read_dir(&root).map_err(|e| e.to_string())? {
                 if entry.map_err(|e| e.to_string())?.file_name() != ".agent-mail-init.lock" {
-                    return Err("data directory is not empty and has no recognized mailbox format; choose a new --agmsg-dir".into());
+                    return Err("data directory is not empty and has no recognized mailbox format; choose a new --data-dir".into());
                 }
             }
             let mut file = fs::OpenOptions::new()
@@ -83,7 +83,7 @@ impl Agmsg {
         let root = Self::location(root)?;
         let root = root.canonicalize().map_err(|error| {
             format!(
-                "cannot open Agent Mail data directory {}: {error}; run team import or join --create first, or specify --agmsg-dir",
+                "cannot open Agent Mail data directory {}: {error}; run team import or start --create first, or specify --data-dir",
                 root.display()
             )
         })?;

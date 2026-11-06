@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 #[derive(Parser)]
 #[command(
     version,
-    about = "Agent Mail — agmsg messaging and a silent bulletin board"
+    about = "Private agent mail, team members and a silent shared board"
 )]
 pub struct Cli {
     /// Local data root; defaults to ~/.agent-mail, reusing an existing agmsg data root.
@@ -30,12 +30,85 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Install lifecycle hooks and export the project skill (once per agent/project).
+    Setup {
+        #[arg(long = "type", value_enum)]
+        agent_type: Option<AgentType>,
+        #[arg(long)]
+        config: Option<PathBuf>,
+        #[arg(long)]
+        skill_dir: Option<PathBuf>,
+        #[arg(long)]
+        replace_agmsg: bool,
+    },
+    /// Register, bind this receiving session and ensure the background service is running.
+    Start {
+        #[arg(long)]
+        team: String,
+        #[arg(long)]
+        name: String,
+        #[command(flatten)]
+        session: SessionArgs,
+        #[arg(long, default_value = ".")]
+        project: PathBuf,
+        /// Create a new local team explicitly; import existing remote teams first.
+        #[arg(long)]
+        create: bool,
+        /// Explicitly move this identity from another session.
+        #[arg(long)]
+        replace: bool,
+        /// Run detached without installing a user-login service.
+        #[arg(long)]
+        no_login: bool,
+    },
+    /// Send as the identity bound to this session. Ambiguous bindings require --team.
+    Send {
+        to: String,
+        #[arg(long)]
+        team: Option<String>,
+        #[command(flatten)]
+        session: SessionArgs,
+        #[arg(
+            long,
+            alias = "file",
+            required_unless_present = "stdin",
+            conflicts_with = "stdin"
+        )]
+        body_file: Option<PathBuf>,
+        #[arg(long)]
+        stdin: bool,
+    },
+    /// List registered members locally, across all teams or one --team (JSONL).
+    List {
+        #[arg(long)]
+        team: Option<String>,
+    },
+    /// Query mail history without marking it read (JSONL).
+    History {
+        #[arg(long)]
+        team: Option<String>,
+        #[command(flatten)]
+        session: SessionArgs,
+        #[arg(long)]
+        agent: Option<String>,
+        #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..))]
+        limit: u32,
+    },
+    /// Show service health, session bindings and notification state together.
+    Status,
+    /// Advanced hook, notification and synchronization diagnostics.
+    Debug {
+        #[command(subcommand)]
+        command: DebugCommand,
+    },
     /// Install or run native lifecycle hooks; never changes hook trust settings.
+    #[command(hide = true)]
     Hook {
         #[command(subcommand)]
         command: HookCommand,
     },
     /// Run one background process for local notifications and all connected teams.
+    #[command(name = "service", alias = "daemon")]
     Daemon {
         #[command(subcommand)]
         command: DaemonCommand,
@@ -43,13 +116,14 @@ pub enum Command {
     /// Read every mailbox bound to the receiving session, then acknowledge its reminder.
     Inbox {
         #[arg(long = "type", value_enum)]
-        agent_type: AgentType,
+        agent_type: Option<AgentType>,
         #[arg(long)]
         session_id: Option<String>,
         #[arg(long)]
         notification: Option<String>,
     },
     /// Inspect or run native notification delivery without starting a daemon.
+    #[command(hide = true)]
     Notify {
         #[command(subcommand)]
         command: NotifyCommand,
@@ -60,6 +134,7 @@ pub enum Command {
         command: TeamCommand,
     },
     /// Register an identity in a local team; import remote teams first.
+    #[command(hide = true)]
     Join {
         team: String,
         #[arg(long)]
@@ -73,6 +148,7 @@ pub enum Command {
         create: bool,
     },
     /// Bind a registered identity to this session; notification setup is separate.
+    #[command(hide = true)]
     Bind {
         team: String,
         #[arg(long)]
@@ -88,32 +164,68 @@ pub enum Command {
         #[arg(long)]
         replace: bool,
     },
-    /// Native remote synchronization over an existing agmsg binding.
+    /// Advanced team synchronization controls.
+    #[command(hide = true)]
     Sync {
         #[command(subcommand)]
         command: SyncCommand,
     },
     /// Check local mailbox format and the shared service; does not verify sync or session wake.
+    #[command(hide = true)]
     Doctor,
     /// Export the bundled Agent Mail skill; does not install or configure agmsg.
+    #[command(hide = true)]
     Skill {
         #[command(subcommand)]
         command: SkillCommand,
     },
     /// Local mailbox commands; all mail reads and writes use Rust.
+    #[command(hide = true)]
     Agmsg {
         #[command(subcommand)]
         command: AgmsgCommand,
     },
-    /// Publish or read posts. Posts never generate agmsg notifications.
+    /// Publish or read silent shared posts.
     Board {
         #[command(subcommand)]
         command: BoardCommand,
     },
-    /// Manage role profiles; does not create mailboxes or bind agmsg sessions.
+    /// Manage optional remote member profiles.
+    #[command(name = "profile", alias = "directory")]
     Directory {
         #[command(subcommand)]
         command: DirectoryCommand,
+    },
+}
+
+#[derive(clap::Args)]
+pub struct SessionArgs {
+    /// Agent type; inferred when exactly one supported runtime session is present.
+    #[arg(long = "type", value_enum)]
+    pub agent_type: Option<AgentType>,
+    /// Session UUID from trusted runtime metadata, when unavailable in the environment.
+    #[arg(long)]
+    pub session_id: Option<String>,
+}
+
+#[derive(Subcommand)]
+pub enum DebugCommand {
+    Hook {
+        #[command(subcommand)]
+        command: HookCommand,
+    },
+    Notify {
+        #[command(subcommand)]
+        command: NotifyCommand,
+    },
+    Sync {
+        #[command(subcommand)]
+        command: SyncCommand,
+    },
+    Doctor,
+    Skill {
+        #[command(subcommand)]
+        command: SkillCommand,
     },
 }
 
@@ -154,7 +266,7 @@ pub enum SyncCommand {
     Start { team: String },
     /// Pause this team until sync start or enable.
     Stop { team: String },
-    /// Upload and download one page; stop official remote sync first.
+    /// Upload and download one page without starting the shared service.
     Once { team: String },
     /// Keep mail synchronized; native sends notify this process immediately.
     Run {
@@ -195,9 +307,14 @@ pub enum DirectoryCommand {
 pub enum BoardCommand {
     /// Publish a post (JSON output). The author is a self-declared role name.
     Post {
-        team: String,
+        /// Team, otherwise inferred from the current session.
+        team: Option<String>,
+        #[arg(long = "team", conflicts_with = "team")]
+        selected_team: Option<String>,
+        #[command(flatten)]
+        session: SessionArgs,
         #[arg(long)]
-        author: String,
+        author: Option<String>,
         /// Read a UTF-8 body up to 64 KiB; trailing newlines are preserved.
         #[arg(long, required_unless_present = "stdin", conflicts_with = "stdin")]
         body_file: Option<PathBuf>,
@@ -207,7 +324,11 @@ pub enum BoardCommand {
     },
     /// List newest posts first as JSONL. Reading does not change later queries.
     List {
-        team: String,
+        team: Option<String>,
+        #[arg(long = "team", conflicts_with = "team")]
+        selected_team: Option<String>,
+        #[command(flatten)]
+        session: SessionArgs,
         #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..=100))]
         limit: u32,
         /// Return posts older than this ID; use the last ID from the previous page.
