@@ -54,7 +54,7 @@ pub(crate) fn team_name(team: &str) -> Result<(), String> {
 pub(crate) struct TeamLock {
     path: PathBuf,
     marker: String,
-    _kernel: fs::File,
+    kernel: fs::File,
 }
 impl TeamLock {
     pub(crate) fn acquire(team_dir: &Path) -> Result<Self, String> {
@@ -126,7 +126,7 @@ impl TeamLock {
         let lock = Self {
             path,
             marker,
-            _kernel: kernel,
+            kernel,
         };
         if team_dir.join(".config.lock.holder").exists() {
             return Err(
@@ -143,6 +143,10 @@ impl Drop for TeamLock {
             let _ = fs::remove_file(self.path.join(".owner"));
             let _ = fs::remove_dir(&self.path);
         }
+        // Closing our descriptor alone does not release flock while a child
+        // spawned on another thread still holds its inherited copy before exec.
+        // The guard owns the critical section, so unlock explicitly at its end.
+        let _ = self.kernel.unlock();
     }
 }
 
@@ -405,6 +409,30 @@ fn initialize_schema(db: &Connection) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    #[test]
+    fn dropping_registry_guard_releases_lock_even_with_an_inherited_descriptor() {
+        let temp = tempfile::tempdir().unwrap();
+        let lock = TeamLock::acquire(temp.path()).unwrap();
+        // dup and fork share the same open file description on Unix. Model a
+        // child that has inherited this descriptor but has not reached exec yet.
+        let inherited = lock.kernel.try_clone().unwrap();
+        let competing = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(temp.path().join(".agent-mail-registry.lock"))
+            .unwrap();
+        assert!(matches!(
+            competing.try_lock(),
+            Err(fs::TryLockError::WouldBlock)
+        ));
+        drop(lock);
+        assert!(
+            competing.try_lock().is_ok(),
+            "dropping the guard must unlock before the inherited descriptor closes"
+        );
+        drop(inherited);
+    }
     #[test]
     fn native_marked_orphan_is_recovered_using_the_kernel_owner_lock() {
         let temp = tempfile::tempdir().unwrap();
