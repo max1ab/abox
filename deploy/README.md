@@ -36,4 +36,4 @@ Docker 交叉构建 Windows（不安装到宿主机）：
 docker buildx build --file deploy/client.Dockerfile --target windows-artifact --output type=local,dest=dist/windows .
 ```
 
-Linux 输出使用 `--target linux-artifact`。客户端不调用 Bash、外置 sqlite3 或 Node。Windows 原生通知和系统登录恢复需在目标机器上另行实测；交叉编译本身不代表真实会话验收。
+Linux 输出使用 `--target linux-artifact`（运行环境需兼容构建镜像的 glibc）；需要跨发行版运行时使用 `--target linux-static-artifact`，生成 Linux x86_64 musl 静态程序。客户端不调用 Bash、外置 sqlite3 或 Node。Windows 原生通知和系统登录恢复需在目标机器上另行实测；交叉编译本身不代表真实会话验收。

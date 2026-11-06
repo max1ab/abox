@@ -19,3 +19,17 @@ COPY --from=windows-build /build/target/x86_64-pc-windows-gnu/release/agent-mail
 
 FROM scratch AS linux-artifact
 COPY --from=build /build/target/release/agent-mail /agent-mail
+
+# Portable Linux binary: toolchain layers remain cached when application sources change.
+FROM rust:1.98-bookworm AS linux-static-build
+RUN apt-get update && apt-get install -y --no-install-recommends musl-tools && rm -rf /var/lib/apt/lists/*
+RUN rustup target add x86_64-unknown-linux-musl
+WORKDIR /build
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+COPY skills ./skills
+ENV CC_x86_64_unknown_linux_musl=musl-gcc
+RUN cargo build --release --locked --target x86_64-unknown-linux-musl
+
+FROM scratch AS linux-static-artifact
+COPY --from=linux-static-build /build/target/x86_64-unknown-linux-musl/release/agent-mail /agent-mail
