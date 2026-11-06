@@ -384,7 +384,7 @@ pub(crate) fn run(root: &Path, kind: AgentType) -> Result<()> {
     if !bound.is_empty() {
         println!(
             "{}",
-            json!({"hookSpecificOutput":{"hookEventName":event,"additionalContext":format!("Agent Mail identities for this session: {}. On [agent-mail:nonce] notices, execute the inbox command included in the notice to read mail and acknowledge the reminder.",bound.join(", "))}})
+            json!({"hookSpecificOutput":{"hookEventName":event,"additionalContext":format!("Agent Mail identities for this session: {}. On [agent-mail:nonce] notices, run agent-mail inbox to read mail and acknowledge the pending reminder.",bound.join(", "))}})
         );
     }
     Ok(())

@@ -141,17 +141,8 @@ pub(crate) async fn once(root: &Path) -> Result<Report> {
             )?;
             continue;
         }
-        let root_text = root.to_str().ok_or("data path is not UTF-8")?;
-        let root_arg = if cfg!(windows) {
-            format!("'{}'", root_text.replace('\'', "''"))
-        } else {
-            format!("'{}'", root_text.replace('\'', "'\"'\"'"))
-        };
-        let message = format!(
-            "[agent-mail:{nonce}] New messages are waiting. Read all mailboxes for this session with: agent-mail --data-dir {root_arg} inbox --type {} --session-id {} --notification {nonce}",
-            group.target.agent_type(),
-            group.target.session()
-        );
+        let message =
+            format!("[agent-mail:{nonce}] New messages are waiting. Check your agent-mail inbox.");
         // No mailbox/registry locks are held across the external notification.
         let result = deliver(&group.target, &message, &nonce, Duration::from_secs(10)).await;
         match &result {
@@ -201,11 +192,17 @@ pub(crate) fn inbox(
     let [(key, group)] = matches.as_slice() else {
         return Err("no unique bound receiving session; check bindings or use the reminder's --notification nonce".into());
     };
+    // Capture before displaying any mail. A reminder created during this read
+    // belongs to a later scan and must not be acknowledged by accident.
+    let pending = match nonce {
+        Some(nonce) => Some(nonce),
+        None => state.pending(key)?,
+    };
     for (team, agent) in &group.boxes {
         println!("{team}/{agent}:");
         mailbox::inbox(root, team, agent)?;
     }
-    if let Some(nonce) = nonce {
+    if let Some(nonce) = pending {
         state.acknowledge(&nonce, key)?;
     }
     Ok(())

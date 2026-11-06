@@ -114,7 +114,7 @@ pub enum Command {
         #[command(subcommand)]
         command: DaemonCommand,
     },
-    /// Read every mailbox bound to the receiving session, then acknowledge its reminder.
+    /// Read every mailbox bound to this session and acknowledge its pending reminder.
     Inbox {
         #[arg(long = "type", value_enum)]
         agent_type: Option<AgentType>,

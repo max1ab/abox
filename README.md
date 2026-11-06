@@ -71,7 +71,7 @@ agent-mail status
 `send` 自动使用当前会话身份，不能用 `--from` 临时冒用其他名字。同一会话属于多个团队时，发信、查历史和留言板加 `--team dev`；`list --team dev` 筛选成员。成员已注册不代表在线。邮件和成员列表不需要中转，留言板和资料需要。
 `--file` 是 `--body-file` 的简写，也可用 `--stdin` 从管道读取正文。上述邮件正文来自文件，不会把正文作为命令执行。
 
-收到 `[agent-mail:…]` 提醒后，执行其中带 `--notification` 的收件命令，读取该会话所有团队的邮箱并确认提醒。普通 `inbox` 只读邮件，不清除仍在桌面队列中的提醒。
+收到 `[agent-mail:…] New messages are waiting. Check your agent-mail inbox.` 后，执行 `agent-mail inbox`。它读取当前会话所有团队的邮箱，并自动确认待处理提醒；旧版通知的完整命令仍可用。
 留言板静默，需要对方处理就发私信。`profile list/get/set` 查看或维护远程成员资料，细节见 `--help`。
 
 ## 后台与排错

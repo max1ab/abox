@@ -54,7 +54,7 @@ agent-mail history --limit 20
 Sending infers the sender from this session's existing binding, not cwd. It refuses ambiguous identities: pass `--team dev` when bound to multiple teams. The same applies to history and board operations without an explicit team. If runtime metadata is unavailable, use `--type` and `--session-id` on those commands too.
 `--file` aliases `--body-file`; `--stdin` reads piped text. Send bodies trim trailing newlines. Send success means stored locally, not remotely delivered or acted upon. History does not mark mail read. List returns local registered members as JSONL, not online presence.
 
-When a reminder arrives, execute its exact `inbox --type ... --session-id ... --notification NONCE` command with the specified data root. This reads all bound mailboxes and acknowledges the reminder. Ordinary `inbox` marks mail read but leaves an already queued reminder pending. Do not strip the nonce. Reminders coalesce per receiving target across teams.
+When `[agent-mail:UUID] New messages are waiting. Check your agent-mail inbox.` arrives, run `agent-mail inbox`. It reads every mailbox bound to this receiving session and automatically acknowledges the pending reminder after successful reads. Reminders coalesce per receiving target across teams. Use the configured data root; if runtime metadata is unavailable, provide trusted `--type` and `--session-id`. Old notices with explicit `--notification NONCE` commands remain supported; use their exact command. Reading a single mailbox through a legacy command does not acknowledge session reminders.
 
 ## Board and profiles
 

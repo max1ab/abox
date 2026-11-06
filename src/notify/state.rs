@@ -1,5 +1,5 @@
 //! Durable attempts are reserved before I/O. A lost result never causes an
-//! automatic resend. Only consumption of the reminder acknowledges its nonce.
+//! automatic resend. Reading the complete receiving session acknowledges its pending reminder.
 use super::Delivery;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
@@ -88,6 +88,12 @@ impl State {
             )
             .map_err(|_| "notification nonce is unknown".into())
     }
+    pub fn pending(&self, target: &str) -> Result<Option<String>> {
+        self.db.query_row(
+            "SELECT nonce FROM notification_attempts WHERE target=?1 AND state IN ('sending','accepted','unknown','failed')",
+            [target], |r| r.get(0),
+        ).optional().map_err(|e| e.to_string())
+    }
     pub fn acknowledge(&self, nonce: &str, target: &str) -> Result<()> {
         let changed=self.db.execute("UPDATE notification_attempts SET state='acknowledged',updated_ms=?3 WHERE nonce=?1 AND target=?2",params![nonce,target,now()]).map_err(|e|e.to_string())?;
         if changed == 0 {
@@ -115,6 +121,28 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn acknowledgment_of_a_snapshot_does_not_clear_a_later_or_foreign_reminder() {
+        let t = tempfile::tempdir().unwrap();
+        let s = State::open(t.path()).unwrap();
+        assert!(s.pending("session").unwrap().is_none());
+        let first = s.reserve("session").unwrap().unwrap();
+        let other = s.reserve("other").unwrap().unwrap();
+        let snapshot = s.pending("session").unwrap().unwrap();
+        assert_eq!(snapshot, first);
+        s.acknowledge(&snapshot, "session").unwrap();
+        // An in-flight transport result cannot resurrect a consumed reminder.
+        s.finish(&snapshot, Delivery::Accepted { receipt: None })
+            .unwrap();
+        assert!(s.pending("session").unwrap().is_none());
+        let next = s.reserve("session").unwrap().unwrap();
+        s.acknowledge(&snapshot, "session").unwrap();
+        assert_eq!(
+            s.pending("session").unwrap().as_deref(),
+            Some(next.as_str())
+        );
+        assert_eq!(s.pending("other").unwrap().as_deref(), Some(other.as_str()));
+    }
     #[test]
     fn reservation_is_coalesced_across_restarts_and_only_acknowledgment_rearms_it() {
         let t = tempfile::tempdir().unwrap();
