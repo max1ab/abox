@@ -142,6 +142,113 @@ fn send_resolves_the_session_and_refuses_ambiguous_or_foreign_bindings() {
     assert!(!inbox.contains("please review"));
 }
 #[test]
+fn local_send_works_when_remote_send_in_the_same_team_is_rejected() {
+    use std::{
+        io::{BufRead, BufReader, Write},
+        net::TcpListener,
+        thread,
+        time::{Duration, Instant},
+    };
+
+    let t = tempfile::tempdir().unwrap();
+    let r = t.path();
+    bind(r, "dev", "worker", FIRST);
+    bind(r, "dev", "reviewer", SECOND);
+    fs::write(r.join("body"), "please review").unwrap();
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let path = r.join("teams/dev/config.json");
+    let mut config: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let server_id = uuid::Uuid::now_v7().to_string();
+    let team_id = config["team_id"].as_str().unwrap().to_owned();
+    config["agents"]["remote"] = serde_json::json!({
+        "member_id": uuid::Uuid::now_v7().to_string(), "registrations": []
+    });
+    config["remote_binding"] = serde_json::json!({
+        "endpoint": format!("http://{}", listener.local_addr().unwrap()),
+        "server_instance_id": server_id, "remote_team_id": team_id,
+        "protocol_version": 1, "cipher_profile": "none", "disconnected_at": null
+    });
+    fs::write(path, config.to_string()).unwrap();
+
+    ok(send(r, Some("dev")));
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    let inbox = command(r, &["inbox"])
+        .env("CODEX_THREAD_ID", SECOND)
+        .output()
+        .unwrap();
+    assert!(ok(inbox).contains("please review"));
+    let history = || ok(command(r, &["history", "--team", "dev"]).output().unwrap());
+    let before = history();
+
+    let relay = thread::spawn(move || {
+        let capabilities = serde_json::json!({
+            "server_instance_id": server_id, "team_id": team_id, "protocol_version": 1,
+            "cipher_profile": "none", "accepted_envelope_versions": [1],
+            "write_allowed_ciphers": ["none"]
+        })
+        .to_string();
+        for (status, body) in [
+            ("503 Service Unavailable", ""),
+            ("200 OK", capabilities.as_str()),
+        ] {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(Instant::now() < deadline, "missing relay check");
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(e) => panic!("{e}"),
+                }
+            };
+            stream.set_nonblocking(false).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut request = BufReader::new(&stream);
+            let mut line = String::new();
+            request.read_line(&mut line).unwrap();
+            assert!(line.starts_with("GET /v1/capabilities "));
+            loop {
+                line.clear();
+                assert_ne!(request.read_line(&mut line).unwrap(), 0);
+                if line == "\r\n" {
+                    break;
+                }
+            }
+            write!(stream, "HTTP/1.1 {status}\r\nAgmsg-Protocol-Version: 1\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+        }
+    });
+    let send_remote = || {
+        command(r, &["send", "remote", "--team", "dev", "--file", "body"])
+            .env("CODEX_THREAD_ID", FIRST)
+            .env("NO_PROXY", "*")
+            .output()
+            .unwrap()
+    };
+    let failed = send_remote();
+    assert!(!failed.status.success());
+    assert!(String::from_utf8_lossy(&failed.stderr).contains("HTTP 503"));
+    assert_eq!(history(), before);
+    assert!(ok(send_remote()).contains("Queued for remote delivery"));
+    relay.join().unwrap();
+    let queued = history();
+    assert_eq!(queued.lines().count(), before.lines().count() + 1);
+
+    // The listener is now closed. A transport error also leaves the outbox unchanged.
+    let disconnected = send_remote();
+    assert!(!disconnected.status.success());
+    assert!(String::from_utf8_lossy(&disconnected.stderr).contains("remote request failed"));
+    assert_eq!(history(), queued);
+}
+
+#[test]
 fn invalid_start_does_not_register_an_identity_and_status_does_not_start_services() {
     let t = tempfile::tempdir().unwrap();
     let r = t.path();

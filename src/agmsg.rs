@@ -84,16 +84,14 @@ impl Agmsg {
         Ok(Self { root })
     }
 
-    pub fn send(
+    pub async fn send(
         &self,
         team: &str,
         from: &str,
         to: &str,
         body_file: Option<&Path>,
     ) -> Result<(), String> {
-        crate::native_send::send(&self.root, team, from, to, body_file)?;
-        println!("Sent to {to} in team {team}");
-        Ok(())
+        crate::native_send::send(&self.root, team, from, to, body_file).await
     }
 
     pub fn members(&self, team: &str) -> Result<Vec<Member>, String> {

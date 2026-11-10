@@ -253,23 +253,13 @@ impl Context {
             .base_url
             .join(route)
             .map_err(|_| "invalid protocol route")?;
-        let mut request = self
-            .http
-            .request(method, url)
-            .header("agmsg-protocol-version", "1")
-            .header("agmsg-team-id", &self.remote);
+        let mut request = self.http.request(method, url);
         if let Some(body) = body {
             request = request.json(&body);
         }
-        let value = crate::remote::json(request).await?;
-        if value["server_instance_id"] != self.server
-            || value["team_id"] != self.remote
-            || value["protocol_version"] != 1
-        {
-            return Err("remote binding changed; refusing to write or advance cursors".into());
-        }
-        Ok(value)
+        crate::remote::team_json(request, &self.server, &self.remote).await
     }
+
     fn cursor(&self) -> Result<String> {
         sql(self.store.db.query_row("SELECT transport_cursor FROM sync_bindings WHERE local_team=?1 AND server_instance_id=?2 AND remote_team_id=?3 AND protocol_version=1 AND driver_generation=?4",
             params![self.team,self.server,self.remote,self.generation], |r|r.get(0)))

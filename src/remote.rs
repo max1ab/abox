@@ -19,6 +19,26 @@ pub(crate) async fn json(request: RequestBuilder) -> Result<Value, String> {
     response_json(response).await
 }
 
+pub(crate) async fn team_json(
+    request: RequestBuilder,
+    server: &str,
+    team: &str,
+) -> Result<Value, String> {
+    let value = json(
+        request
+            .header("agmsg-protocol-version", "1")
+            .header("agmsg-team-id", team),
+    )
+    .await?;
+    if value["server_instance_id"] != server
+        || value["team_id"] != team
+        || value["protocol_version"] != 1
+    {
+        return Err("remote binding changed; refusing to write or advance cursors".into());
+    }
+    Ok(value)
+}
+
 pub(crate) async fn response_json(mut response: reqwest::Response) -> Result<Value, String> {
     if !response.status().is_success() {
         return Err(format!(

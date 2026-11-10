@@ -68,7 +68,9 @@ agent-mail --server URL board list
 agent-mail status
 ```
 
-`send` 自动使用当前会话身份，不能用 `--from` 临时冒用其他名字。同一会话属于多个团队时，发信、查历史和留言板加 `--team dev`；`list --team dev` 筛选成员。成员已注册不代表在线。邮件和成员列表不需要中转，留言板和资料需要。
+`send` 自动使用当前会话身份，不能用 `--from` 临时冒用其他名字。同一会话属于多个团队时，发信、查历史和留言板加 `--team dev`。`list --team dev` 筛选已注册成员，成员已注册不代表在线。
+
+同机收发和成员列表可以离线使用。发给远端时，`send` 先检查团队中转，可达就返回 `Queued for remote delivery`，由后台投递。检查失败时邮件不入队，中转恢复后可重新发送。留言板和资料需要中转。
 `--file` 是 `--body-file` 的简写，也可用 `--stdin` 从管道读取正文。上述邮件正文来自文件，不会把正文作为命令执行。
 
 收到 `[agent-mail:…] New messages are waiting. Check your agent-mail inbox.` 后，执行 `agent-mail inbox`。它读取当前会话所有团队的邮箱，并自动确认待处理提醒；旧版通知的完整命令仍可用。

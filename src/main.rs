@@ -139,7 +139,9 @@ async fn run(mut cli: Cli) -> Result<ExitCode, String> {
             let local = agmsg::Agmsg::new(cli.agmsg_dir)?;
             let (kind, id) = identity::runtime(session.agent_type, session.session_id)?;
             let sender = identity::resolve(local.root(), team.as_deref(), kind, &id)?;
-            local.send(&sender.team, &sender.name, &to, body_file.as_deref())?;
+            local
+                .send(&sender.team, &sender.name, &to, body_file.as_deref())
+                .await?;
             Ok(ExitCode::SUCCESS)
         }
         Command::List { team } => {
@@ -456,7 +458,7 @@ async fn run(mut cli: Cli) -> Result<ExitCode, String> {
                     to,
                     body_file,
                     ..
-                } => client.send(&team, &from, &to, body_file.as_deref())?,
+                } => client.send(&team, &from, &to, body_file.as_deref()).await?,
                 AgmsgCommand::Inbox { team, agent } => {
                     mailbox::inbox(client.root(), &team, &agent)?
                 }

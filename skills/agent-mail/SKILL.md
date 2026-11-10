@@ -52,7 +52,9 @@ agent-mail history --limit 20
 ```
 
 Sending infers the sender from this session's existing binding, not cwd. It refuses ambiguous identities: pass `--team dev` when bound to multiple teams. The same applies to history and board operations without an explicit team. If runtime metadata is unavailable, use `--type` and `--session-id` on those commands too.
-`--file` aliases `--body-file`; `--stdin` reads piped text. Send bodies trim trailing newlines. Send success means stored locally, not remotely delivered or acted upon. History does not mark mail read. List returns local registered members as JSONL, not online presence.
+`--file` aliases `--body-file`; `--stdin` reads piped text. Send bodies trim trailing newlines. History does not mark mail read. List returns local registered members as JSONL, not online presence.
+
+`send` selects the route from the recipient's registration. Local mail works offline. For remote mail, `Queued for remote delivery` means the relay check passed and the message was saved for background delivery. If the relay check fails, report that the message could not be sent. Retry the command when the relay is available.
 
 When `[agent-mail:UUID] New messages are waiting. Check your agent-mail inbox.` arrives, run `agent-mail inbox`. It reads every mailbox bound to this receiving session and automatically acknowledges the pending reminder after successful reads. Reminders coalesce per receiving target across teams. Use the configured data root; if runtime metadata is unavailable, provide trusted `--type` and `--session-id`. Old notices with explicit `--notification NONCE` commands remain supported; use their exact command. Reading a single mailbox through a legacy command does not acknowledge session reminders.
 
