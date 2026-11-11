@@ -48,6 +48,9 @@ pub enum Command {
         team: String,
         #[arg(long)]
         name: String,
+        /// Machine label for a qualified address such as reviewer@laptop.
+        #[arg(long)]
+        machine: Option<String>,
         #[command(flatten)]
         session: SessionArgs,
         #[arg(long, default_value = ".")]

@@ -38,6 +38,7 @@ agent-mail start --team dev --name worker --create
 ```
 
 它会注册身份、绑定当前会话，并启动后台服务。另一个会话用不同名字执行同一命令即可加入；已有团队不必加 `--create`。
+不同机器想用相同的 Agent 名字时，在 `start` 里加 `--machine A` 或 `--machine B`，分别注册为 `reviewer@A` 和 `reviewer@B`。只有一个匹配时，发信可以只写 `reviewer`。
 Agent 类型通常从运行环境推断；读取不到时传 `--type codex --session-id <实际UUID>`。换绑到新会话须明确加 `--replace`。
 
 跨机器使用同一个中转地址：

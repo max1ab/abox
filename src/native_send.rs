@@ -32,9 +32,11 @@ pub async fn send(
         return Err("message body contains NUL; refusing lossy shell-compatible delivery".into());
     }
     let store = crate::store::open(root, team)?;
-    let relay = recipient_relay(&store.config, team, from, to)?.cloned();
+    let requested = to;
+    let to = resolve_recipient(&store.config, requested)?.to_owned();
+    let relay = recipient_relay(&store.config, team, from, &to)?.cloned();
     let mut store = if let Some(binding) = &relay {
-        let recipient = store.config["agents"][to].clone();
+        let recipient = store.config["agents"][&to].clone();
         // The relay check must not hold the registry lock or a SQLite connection.
         drop(store);
         check_recipient(binding, &recipient)
@@ -43,8 +45,9 @@ pub async fn send(
                 format!("cannot send to remote agent '{to}' in team '{team}': {error}")
             })?;
         let store = crate::store::open(root, team)?;
-        if recipient_relay(&store.config, team, from, to)? != Some(binding)
-            || store.config["agents"][to] != recipient
+        if resolve_recipient(&store.config, requested)? != to
+            || recipient_relay(&store.config, team, from, &to)? != Some(binding)
+            || store.config["agents"][&to] != recipient
         {
             return Err("recipient route changed during send. Retry the command".into());
         }
@@ -83,6 +86,35 @@ pub async fn send(
         println!("Sent to {to} in team {team}");
     }
     Ok(())
+}
+
+fn resolve_recipient<'a>(config: &'a Value, requested: &'a str) -> Result<&'a str, String> {
+    if requested.contains('@') {
+        return Ok(requested);
+    }
+    let agents = config["agents"].as_object().ok_or("invalid team roster")?;
+    let mut matches: Vec<_> = agents
+        .iter()
+        .filter(|(address, member)| {
+            !member.is_null()
+                && (*address == requested
+                    || address
+                        .rsplit_once('@')
+                        .is_some_and(|(name, machine)| name == requested && !machine.is_empty()))
+        })
+        .map(|(address, _)| address.as_str())
+        .collect();
+    match matches.as_slice() {
+        [] => Ok(requested),
+        [address] => Ok(address),
+        _ => {
+            matches.sort_unstable();
+            Err(format!(
+                "agent name '{requested}' is ambiguous; use a full address: {}",
+                matches.join(", ")
+            ))
+        }
+    }
 }
 
 fn recipient_relay<'a>(

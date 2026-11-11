@@ -114,12 +114,14 @@ async fn run(mut cli: Cli, server_configured: bool) -> Result<ExitCode, String> 
         Command::Start {
             team,
             name,
+            machine,
             session,
             project,
             create,
             replace,
             no_login,
         } => {
+            let name = setup::registration_name(name, machine.as_deref())?;
             // Validate runtime evidence before creating an identity or a team.
             let (kind, id) = identity::runtime(session.agent_type, session.session_id)?;
             let local = agmsg::Agmsg::for_setup(cli.agmsg_dir)?;

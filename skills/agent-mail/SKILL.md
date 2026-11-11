@@ -31,6 +31,8 @@ agent-mail start --team dev --name reviewer          # join an existing team
 
 Agent type and session ID are inferred automatically; pass `--type codex|claude-code --session-id UUID` from trusted runtime metadata when inference fails. Use the team and name supplied by the user or already established. `--replace` moves an identity from another session; never replace unless explicitly requested. Do not create a local team when the user means an existing remote team.
 
+When machines use the same agent name, add the assigned machine label with `start --machine A`. The address is then `reviewer@A`. Use the full address to send if the short name matches multiple members.
+
 For cross-machine teams:
 
 ```sh

@@ -3,6 +3,22 @@ use std::path::Path;
 
 use crate::{agmsg::Agmsg, cli::AgentType};
 
+pub fn registration_name(name: String, machine: Option<&str>) -> Result<String, String> {
+    let Some(machine) = machine else {
+        return Ok(name);
+    };
+    crate::store::team_name(&name)?;
+    crate::store::team_name(machine)?;
+    if name.contains('@') || machine.contains('@') {
+        return Err("provide the agent name and machine label separately, without '@'".into());
+    }
+    let address = format!("{name}@{machine}");
+    if address.chars().count() > 128 {
+        return Err("the qualified agent name must be at most 128 characters".into());
+    }
+    Ok(address)
+}
+
 pub async fn import(agmsg: &Agmsg, team: &str, server: &str) -> Result<(), String> {
     crate::import::run(agmsg.root(), team, server).await?;
     println!(

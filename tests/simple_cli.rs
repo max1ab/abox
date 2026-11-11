@@ -416,6 +416,55 @@ fn start_combines_registration_binding_and_idempotent_service_start() {
 }
 
 #[test]
+fn machine_qualified_recipients_are_distinct() {
+    let t = tempfile::tempdir().unwrap();
+    let r = t.path();
+    let joined = command(
+        r,
+        &[
+            "start",
+            "--team",
+            "dev",
+            "--name",
+            "reviewer",
+            "--machine",
+            "A",
+            "--create",
+            "--no-login",
+        ],
+    )
+    .env("CODEX_THREAD_ID", SECOND)
+    .output()
+    .unwrap();
+    ok(command(r, &["service", "stop"]).output().unwrap());
+    assert!(ok(joined).contains("dev/reviewer@A"));
+    bind(r, "dev", "sender", FIRST);
+    fs::write(r.join("body"), "test address").unwrap();
+    let send = |recipient: &str| {
+        command(r, &["send", recipient, "--team", "dev", "--file", "body"])
+            .env("CODEX_THREAD_ID", FIRST)
+            .output()
+            .unwrap()
+    };
+    assert!(ok(send("reviewer")).contains("reviewer@A"));
+
+    let third = "019a4000-0000-7000-8000-000000000003";
+    bind(r, "dev", "reviewer@B", third);
+    let ambiguous = send("reviewer");
+    assert!(!ambiguous.status.success());
+    let error = String::from_utf8_lossy(&ambiguous.stderr);
+    assert!(error.contains("reviewer@A, reviewer@B"), "{error}");
+    assert!(ok(send("reviewer@B")).contains("reviewer@B"));
+    let inbox = ok(command(r, &["inbox"])
+        .env("CODEX_THREAD_ID", third)
+        .output()
+        .unwrap());
+    assert_eq!(inbox.matches("test address").count(), 1);
+    let roster = ok(command(r, &["list"]).output().unwrap());
+    assert!(roster.contains("reviewer@A") && roster.contains("reviewer@B"));
+}
+
+#[test]
 fn claude_runtime_identity_works_without_a_messaging_socket() {
     let t = tempfile::tempdir().unwrap();
     let r = t.path();
