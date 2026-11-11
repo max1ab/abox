@@ -47,6 +47,66 @@ pub(super) fn incoming() -> Candidate {
     }
 }
 #[test]
+fn history_boundary_keeps_old_mail_local_and_synchronizes_new_mail() {
+    let temp = fixture();
+    let path = temp.path().join("teams/dev/config.json");
+    let mut config: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    config["remote_binding"]["history_boundary"] =
+        json!({"local_event":1,"local_message":2,"remote_sequence":2});
+    fs::write(path, serde_json::to_vec(&config).unwrap()).unwrap();
+    let mut ctx = Context::open(temp.path(), "dev").unwrap();
+    seed(&ctx);
+    seed(&ctx);
+    ctx.store
+        .db
+        .execute_batch(
+            "INSERT INTO events(type,id,team,from_agent,to_agent,body,at,legacy_id)
+         SELECT 'message_sent','old-event',team,from_agent,to_agent,body,created_at,id
+         FROM messages WHERE id=1;",
+        )
+        .unwrap();
+    assert!(ctx.reserve(1_048_576).unwrap().is_empty());
+    seed(&ctx);
+    let outgoing = ctx.reserve(1_048_576).unwrap();
+    assert_eq!(outgoing.len(), 1);
+    let mapped: String = ctx
+        .store
+        .db
+        .query_row("SELECT local_id FROM sync_messages", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(mapped, "3");
+
+    let member = "019a4000-0000-7000-8000-000000000005";
+    let roster = Candidate {
+        id: uuid::Uuid::new_v4().to_string(),
+        envelope: Envelope {
+            v: 1,
+            cipher: "none".into(),
+            key_id: None,
+            blob: STANDARD.encode(
+                json!({"kind":"member_joined","mutation_id":uuid::Uuid::now_v7().to_string(),
+            "member_id":member,"name":"reviewer@B","occurred_at":"2026-11-03T00:00:00.000000Z"})
+                .to_string(),
+            ),
+        },
+    };
+    assert_eq!(ctx.apply("0", "0", &page(&roster, "1")).unwrap(), 0);
+    assert_eq!(ctx.apply("1", "1", &page(&incoming(), "2")).unwrap(), 0);
+    assert_eq!(ctx.apply("2", "2", &page(&incoming(), "3")).unwrap(), 1);
+    assert_eq!(ctx.cursor().unwrap(), "3");
+    assert_eq!(
+        crate::registry::config(temp.path(), "dev").unwrap()["agents"]["reviewer@B"]["member_id"],
+        member
+    );
+    let total: i64 = ctx
+        .store
+        .db
+        .query_row("SELECT count(*) FROM messages", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(total, 4);
+}
+
+#[test]
 fn reservation_survives_reopen_and_lost_ack_and_self_echo_never_duplicates() {
     let temp = fixture();
     let candidate = {

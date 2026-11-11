@@ -54,6 +54,28 @@ struct Context {
     generation: String,
     base_url: Url,
     http: Client,
+    history_boundary: Option<HistoryBoundary>,
+}
+
+#[derive(Deserialize)]
+struct HistoryBoundary {
+    local_event: i64,
+    local_message: i64,
+    remote_sequence: i64,
+}
+
+impl HistoryBoundary {
+    fn load(binding: &Value) -> Result<Option<Self>> {
+        let Some(value) = binding.get("history_boundary") else {
+            return Ok(None);
+        };
+        let boundary: Self =
+            serde_json::from_value(value.clone()).map_err(|_| "invalid sync history boundary")?;
+        if boundary.local_event < 0 || boundary.local_message < 0 || boundary.remote_sequence < 0 {
+            return Err("invalid sync history boundary".into());
+        }
+        Ok(Some(boundary))
+    }
 }
 fn sql<T>(result: rusqlite::Result<T>) -> Result<T> {
     result.map_err(|e| format!("sync storage: {e}"))
@@ -152,6 +174,7 @@ impl Context {
             return Err("the official remote sync engine is selected; use agent-mail sync enable TEAM to stop it and adopt native sync".into());
         }
         let config = &store.config;
+        let history_boundary = HistoryBoundary::load(&config["remote_binding"])?;
         if config["import_pending"] == true && !allow_pending {
             return Err(
                 "team import is incomplete; repeat team import before starting synchronization"
@@ -233,6 +256,7 @@ impl Context {
             generation,
             base_url,
             http,
+            history_boundary,
         })
     }
     fn guard(&self) -> Result<TeamLock> {
@@ -487,6 +511,14 @@ fn projection(envelope: &Envelope) -> Result<Projection> {
 }
 impl Context {
     fn reserve(&mut self, max_blob: usize) -> Result<Vec<Candidate>> {
+        let message_boundary = self
+            .history_boundary
+            .as_ref()
+            .map(|boundary| boundary.local_message);
+        let event_boundary = self
+            .history_boundary
+            .as_ref()
+            .map(|boundary| boundary.local_event);
         let _guard = self.guard()?;
         let tx = sql(self
             .store
@@ -496,8 +528,9 @@ impl Context {
         // Bootstrap legacy-only history exactly once, preserving the official
         // negative event positions and existing wire reservations.
         let too_large: bool = sql(tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM messages WHERE team=?1 AND id>=1000000000)",
-            [&self.team],
+            "SELECT EXISTS(SELECT 1 FROM messages WHERE team=?1 AND id>=1000000000
+             AND (?2 IS NULL OR id>?2))",
+            params![self.team, message_boundary],
             |r| r.get(0),
         ))?;
         if too_large {
@@ -505,15 +538,25 @@ impl Context {
         }
         sql(tx.execute("INSERT INTO events(seq,type,id,team,from_agent,to_agent,body,at,legacy_id)
             SELECT m.id-1000000000,'message_sent',CAST(m.id AS TEXT),m.team,m.from_agent,m.to_agent,m.body,m.created_at,m.id FROM messages m
-            WHERE m.team=?1 AND NOT EXISTS(SELECT 1 FROM events e WHERE e.legacy_id=m.id)
-            AND NOT EXISTS(SELECT 1 FROM events e WHERE e.seq=m.id-1000000000)",[&self.team]))?;
+            WHERE m.team=?1 AND (?2 IS NULL OR m.id>?2) AND NOT EXISTS(SELECT 1 FROM events e WHERE e.legacy_id=m.id)
+            AND NOT EXISTS(SELECT 1 FROM events e WHERE e.seq=m.id-1000000000)",params![self.team,message_boundary]))?;
         let rows = {
             let mut statement=sql(tx.prepare("SELECT e.seq,e.id,e.body,e.at,e.from_agent,e.to_agent FROM events e
               LEFT JOIN sync_messages m ON m.local_team=?1 AND m.server_instance_id=?2 AND m.remote_team_id=?3
               AND m.protocol_version=1 AND m.driver_generation=?4 AND m.local_position=e.seq
-              WHERE e.team=?1 AND e.type='message_sent' AND m.server_seq IS NULL ORDER BY e.seq LIMIT 10"))?;
+              WHERE e.team=?1 AND e.type='message_sent' AND m.server_seq IS NULL
+              AND (?5 IS NULL OR e.seq>?5 OR (e.seq<0 AND e.legacy_id>?6))
+              AND (?6 IS NULL OR e.legacy_id IS NULL OR e.legacy_id>?6)
+              ORDER BY e.seq LIMIT 10"))?;
             sql(statement.query_map(
-                params![self.team, self.server, self.remote, self.generation],
+                params![
+                    self.team,
+                    self.server,
+                    self.remote,
+                    self.generation,
+                    event_boundary,
+                    message_boundary
+                ],
                 |r| {
                     Ok((
                         r.get::<_, i64>(0)?,
@@ -650,6 +693,13 @@ impl Context {
                 }
                 roster.apply(&value, &message.server_seq, &message.id)?;
                 sql(tx.execute("INSERT OR IGNORE INTO sync_quarantine(local_team,server_instance_id,remote_team_id,protocol_version,driver_generation,server_seq,wire_id,server_received_at,envelope_v,cipher,key_id,blob,status) VALUES (?1,?2,?3,1,?4,?5,?6,?7,?8,?9,?10,?11,'imported')",params![self.team,self.server,self.remote,self.generation,message.server_seq,message.id,message.server_received_at,message.envelope.v,message.envelope.cipher,message.envelope.key_id,message.envelope.blob]))?;
+                continue;
+            }
+            if let Some(boundary) = &self.history_boundary
+                && sequence(&message.server_seq)? <= boundary.remote_sequence
+            {
+                // Replay roster changes from before the attachment, but leave
+                // private mail from that period on its original machine.
                 continue;
             }
             let existing=sql(tx.query_row("SELECT envelope_v,cipher,key_id,blob,server_seq FROM sync_messages WHERE server_instance_id=?1 AND remote_team_id=?2 AND protocol_version=1 AND wire_id=?3",
