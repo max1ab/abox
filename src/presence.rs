@@ -96,7 +96,11 @@ pub(crate) async fn list(root: &Path, team: Option<String>, all: bool) -> Result
         let config = crate::registry::config(root, &name)?;
         let members = crate::mailbox::members_from_config(&config)?;
         let binding = &config["remote_binding"];
-        if !all && binding.is_object() && binding.get("disconnected_at") == Some(&Value::Null) {
+        if !all
+            && config["attachment_pending"] != true
+            && binding.is_object()
+            && binding.get("disconnected_at") == Some(&Value::Null)
+        {
             let binding = binding.clone();
             probes.spawn(async move {
                 let result = async {

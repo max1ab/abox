@@ -155,6 +155,11 @@ fn recipient_relay<'a>(
     if crate::presence::is_local(recipient) {
         return Ok(None);
     }
+    if cfg["attachment_pending"] == true {
+        return Err(
+            "remote team attachment is incomplete; retry start with the relay address".into(),
+        );
+    }
     let binding = &cfg["remote_binding"];
     if !binding.is_object() || binding.get("disconnected_at") != Some(&Value::Null) {
         return Err(format!(

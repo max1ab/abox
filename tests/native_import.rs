@@ -34,6 +34,11 @@ fn envelope(id: &str, seq: &str, body: Value) -> Value {
 }
 fn caps(mode: &str) -> Value {
     let mut v = common_body();
+    v["current_seq"] = json!(if matches!(mode, "expanded" | "renamed") {
+        "3"
+    } else {
+        "2"
+    });
     v["cipher_profile"] = json!(if mode == "encrypted" {
         "age-v1"
     } else {
@@ -259,6 +264,139 @@ fn import_preserves_identity_across_rename() {
     assert!(cfg["agents"].get("receiver").is_none());
     assert_eq!(cfg["agents"]["reviewer@B"]["member_id"], MEMBER);
     assert!(cfg.get("import_pending").is_none());
+}
+
+#[test]
+fn start_attaches_an_existing_team_without_combining_old_mail() {
+    let t = fixture();
+    let root = t.path();
+    let relay = Relay::new("expanded");
+    let local = cli(
+        root,
+        &[
+            "join",
+            "dev",
+            "--create",
+            "--name",
+            "reviewer@A",
+            "--type",
+            "codex",
+        ],
+    );
+    assert!(
+        local.status.success(),
+        "{}",
+        String::from_utf8_lossy(&local.stderr)
+    );
+    fs::write(root.join("body"), "private local history").unwrap();
+    let sent = cli(
+        root,
+        &[
+            "agmsg",
+            "send",
+            "dev",
+            "--from",
+            "reviewer@A",
+            "--to",
+            "reviewer@A",
+            "--body-file",
+            "body",
+        ],
+    );
+    assert!(
+        sent.status.success(),
+        "{}",
+        String::from_utf8_lossy(&sent.stderr)
+    );
+    let history = || cli(root, &["history", "--team", "dev"]).stdout;
+    let before = history();
+    assert!(String::from_utf8_lossy(&before).contains("private local history"));
+    let original = config(root);
+    let started = cli(
+        root,
+        &[
+            "start",
+            "--server",
+            &relay.endpoint,
+            "--team",
+            "dev",
+            "--name",
+            "reviewer",
+            "--machine",
+            "A",
+            "--type",
+            "codex",
+            "--session-id",
+            "019a4000-0000-7000-8000-000000000005",
+            "--no-login",
+        ],
+    );
+    let _ = cli(root, &["service", "stop"]);
+    assert!(
+        started.status.success(),
+        "{}",
+        String::from_utf8_lossy(&started.stderr)
+    );
+    let cfg = config(root);
+    assert_eq!(cfg["team_id"], original["team_id"]);
+    assert_eq!(
+        cfg["agents"]["reviewer@A"],
+        original["agents"]["reviewer@A"]
+    );
+    assert_eq!(cfg["agents"]["reviewer@B"]["member_id"], LATER_MEMBER);
+    assert_eq!(cfg["remote_binding"]["remote_team_id"], TEAM);
+    assert_eq!(
+        cfg["remote_binding"]["history_boundary"]["remote_sequence"],
+        3
+    );
+    assert!(cfg.get("attachment_pending").is_none());
+    assert_eq!(history(), before);
+}
+
+#[test]
+fn start_rejects_attachment_with_a_conflicting_full_address() {
+    let t = fixture();
+    let root = t.path();
+    let relay = Relay::new("expanded");
+    let local = cli(
+        root,
+        &[
+            "join",
+            "dev",
+            "--create",
+            "--name",
+            "reviewer@B",
+            "--type",
+            "codex",
+        ],
+    );
+    assert!(
+        local.status.success(),
+        "{}",
+        String::from_utf8_lossy(&local.stderr)
+    );
+    let before = config(root);
+    let started = cli(
+        root,
+        &[
+            "--server",
+            &relay.endpoint,
+            "start",
+            "--team",
+            "dev",
+            "--name",
+            "reviewer@B",
+            "--type",
+            "codex",
+            "--session-id",
+            "019a4000-0000-7000-8000-000000000005",
+            "--no-login",
+        ],
+    );
+    assert!(!started.status.success());
+    let error = String::from_utf8_lossy(&started.stderr);
+    assert!(error.contains("address 'reviewer@B'"), "{error}");
+    assert_eq!(config(root), before);
 }
 
 #[test]

@@ -80,7 +80,7 @@ impl HistoryBoundary {
 fn sql<T>(result: rusqlite::Result<T>) -> Result<T> {
     result.map_err(|e| format!("sync storage: {e}"))
 }
-fn sequence(value: &str) -> Result<i64> {
+pub(crate) fn sequence(value: &str) -> Result<i64> {
     if value.is_empty()
         || (value.len() > 1 && value.starts_with('0'))
         || !value.bytes().all(|c| c.is_ascii_digit())
@@ -138,6 +138,95 @@ pub(crate) fn endpoint(raw: &str) -> Result<Url> {
     Ok(url)
 }
 
+fn read_page<'a>(after: &str, page: &'a Value) -> Result<(Vec<RemoteMessage>, &'a str)> {
+    let messages: Vec<RemoteMessage> = serde_json::from_value(page["messages"].clone())
+        .map_err(|_| "invalid remote message page")?;
+    if messages.len() > 10 {
+        return Err("remote exceeded requested page size".into());
+    }
+    let next = page["next_after"].as_str().ok_or("missing next cursor")?;
+    let mut last = sequence(after)?;
+    for message in &messages {
+        let seq = sequence(&message.server_seq)?;
+        if seq <= last || !uuid(&message.id, 4) {
+            return Err("remote message IDs or sequence ordering invalid".into());
+        }
+        let value = plain(&message.envelope)?;
+        if value.get("kind").is_some() {
+            roster::validate(&value)?;
+        } else {
+            projection(&message.envelope)?;
+        }
+        last = seq;
+    }
+    if sequence(next)? != last
+        || page["has_more"].as_bool().is_none()
+        || (messages.is_empty() && page["has_more"] == true)
+    {
+        return Err("inconsistent remote page cursor".into());
+    }
+    Ok((messages, next))
+}
+
+pub(crate) async fn verify_attachment(
+    http: &Client,
+    endpoint: &Url,
+    server: &str,
+    team: &str,
+    boundary: i64,
+    local_records: &[Value],
+) -> Result<()> {
+    let url = endpoint
+        .join("v1/messages")
+        .map_err(|_| "invalid attachment route")?;
+    let mut names = std::collections::HashMap::new();
+    for record in local_records {
+        if let Some(id) = record["member_id"].as_str() {
+            for name in ["name", "from", "to"]
+                .into_iter()
+                .filter_map(|field| record[field].as_str())
+            {
+                names.insert(name, id);
+            }
+        }
+    }
+    let mut after = "0".to_owned();
+    for _ in 0..1000 {
+        if sequence(&after)? >= boundary {
+            return Ok(());
+        }
+        let request = http
+            .get(url.clone())
+            .query(&[("after", after.as_str()), ("limit", "10")]);
+        let page = crate::remote::team_json(request, server, team).await?;
+        let (messages, next) = read_page(&after, &page)?;
+        for message in messages {
+            if sequence(&message.server_seq)? > boundary {
+                break;
+            }
+            let value = plain(&message.envelope)?;
+            for name in ["name", "from", "to"]
+                .into_iter()
+                .filter_map(|field| value[field].as_str())
+            {
+                if names.get(name).is_some_and(|id| value["member_id"] != *id) {
+                    return Err(format!(
+                        "agent address '{name}' belongs to different local and remote members"
+                    ));
+                }
+            }
+        }
+        if sequence(next)? >= boundary {
+            return Ok(());
+        }
+        if page["has_more"] == false {
+            return Err("remote journal ended before the attachment boundary".into());
+        }
+        after = next.to_owned();
+    }
+    Err("attachment exceeded the journal page limit".into())
+}
+
 impl Context {
     fn open(root: &Path, team: &str) -> Result<Self> {
         Self::open_for_adoption(root, team, false)
@@ -175,7 +264,9 @@ impl Context {
         }
         let config = &store.config;
         let history_boundary = HistoryBoundary::load(&config["remote_binding"])?;
-        if config["import_pending"] == true && !allow_pending {
+        if (config["import_pending"] == true || config["attachment_pending"] == true)
+            && !allow_pending
+        {
             return Err(
                 "team import is incomplete; repeat team import before starting synchronization"
                     .into(),
@@ -632,32 +723,7 @@ impl Context {
         sql(tx.commit())
     }
     fn apply(&mut self, expected: &str, after: &str, page: &Value) -> Result<usize> {
-        let messages: Vec<RemoteMessage> = serde_json::from_value(page["messages"].clone())
-            .map_err(|_| "invalid remote message page")?;
-        if messages.len() > 10 {
-            return Err("remote exceeded requested page size".into());
-        }
-        let next = page["next_after"].as_str().ok_or("missing next cursor")?;
-        let mut last = sequence(after)?;
-        for message in &messages {
-            let seq = sequence(&message.server_seq)?;
-            if seq <= last || !uuid(&message.id, 4) {
-                return Err("remote message IDs or sequence ordering invalid".into());
-            }
-            let value = plain(&message.envelope)?;
-            if value.get("kind").is_some() {
-                roster::validate(&value)?;
-            } else {
-                projection(&message.envelope)?;
-            }
-            last = seq;
-        }
-        if sequence(next)? != last
-            || page["has_more"].as_bool().is_none()
-            || (messages.is_empty() && page["has_more"] == true)
-        {
-            return Err("inconsistent remote page cursor".into());
-        }
+        let (messages, next) = read_page(after, page)?;
         let _guard = self.guard()?;
         let mut roster = roster::Roster::load(self)?;
         let tx = sql(self
@@ -681,6 +747,21 @@ impl Context {
             }
             let value = plain(&message.envelope)?;
             if value.get("kind").is_some() {
+                if self.history_boundary.is_some() {
+                    for name in ["name", "to"]
+                        .into_iter()
+                        .filter_map(|key| value[key].as_str())
+                    {
+                        let local = &self.store.config["agents"][name];
+                        if crate::presence::is_local(local)
+                            && local["member_id"] != value["member_id"]
+                        {
+                            return Err(format!(
+                                "agent address '{name}' belongs to different local and remote members"
+                            ));
+                        }
+                    }
+                }
                 let prior=sql(tx.query_row("SELECT envelope_v,cipher,key_id,blob,server_seq FROM sync_quarantine WHERE server_instance_id=?1 AND remote_team_id=?2 AND protocol_version=1 AND wire_id=?3",params![self.server,self.remote,message.id],|r|Ok((Envelope{v:r.get(0)?,cipher:r.get(1)?,key_id:r.get(2)?,blob:r.get(3)?},r.get::<_,String>(4)?))).optional())?;
                 if let Some((envelope, seq)) = prior
                     && (envelope != message.envelope || seq != message.server_seq)
@@ -770,7 +851,11 @@ pub(crate) fn select(root: &Path, team: &str, enabled: bool) -> Result<()> {
     let dir = root.join("teams").join(team);
     let _lock = TeamLock::acquire(&dir)?;
     let mut cfg = crate::registry::config(root, team)?;
-    if enabled && (cfg["import_pending"] == true || !cfg["remote_binding"].is_object()) {
+    if enabled
+        && (cfg["import_pending"] == true
+            || cfg["attachment_pending"] == true
+            || !cfg["remote_binding"].is_object())
+    {
         return Err("import/connect this team before enabling synchronization".into());
     }
     cfg["sync_enabled"] = json!(enabled);

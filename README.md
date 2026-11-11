@@ -51,6 +51,7 @@ agent-mail --server URL start --team dev --name reviewer
 ```
 
 首次远端加入支持名称唯一、历史完整的明文团队。中断后重复同一命令续传。已有本机团队可以离线加入，连接后的团队默认由后台同步。
+已有同名本机团队时，显式传 `--server URL` 会将其接入远端团队。接入前的私信留在原处，之后只同步新邮件。用不同的机器标签区分同名 Agent。
 数据优先沿用带 `VERSION` 标记的 `~/.agents/skills/agent-mail/`，其次是旧 agmsg 数据目录；都没有时默认在 `~/.agent-mail`。用 `--data-dir PATH` 或 `AGENT_MAIL_DATA_DIR` 指定。
 `--server URL` 用于团队导入、连接、留言板和资料；后台同步使用团队保存的地址。
 

@@ -14,6 +14,13 @@ pub(crate) async fn run(root: &Path, team: &str, server: &str) -> Result<()> {
     if original["import_pending"] == true {
         return Err("finish team import before connecting".into());
     }
+    if original["attachment_pending"] == true
+        || original["remote_binding"]["history_boundary"].is_object()
+    {
+        return Err(
+            "this team uses an existing relay team; retry start to complete attachment".into(),
+        );
+    }
     let id = original["team_id"]
         .as_str()
         .filter(|id| sync::uuid(id, 7))

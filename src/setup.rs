@@ -20,23 +20,38 @@ pub fn registration_name(name: String, machine: Option<&str>) -> Result<String, 
 }
 
 pub async fn import(agmsg: &Agmsg, team: &str, server: &str) -> Result<(), String> {
-    crate::import::run(agmsg.root(), team, server).await?;
+    crate::import::run(agmsg.root(), team, server, false).await?;
     println!(
         "Imported team {team}. Run agent-mail start --team {team} --name NAME from the receiving session."
     );
     Ok(())
 }
 
-pub async fn import_for_start(agmsg: &Agmsg, team: &str, server: &str) -> Result<(), String> {
+pub async fn import_for_start(
+    agmsg: &Agmsg,
+    team: &str,
+    server: &str,
+    explicit: bool,
+) -> Result<(), String> {
     crate::store::team_name(team)?;
     let root = agmsg.root();
     let path = root.join("teams").join(team).join("config.json");
-    if path.try_exists().map_err(|e| e.to_string())?
-        && crate::registry::config(root, team)?["import_pending"] != true
-    {
-        return Ok(());
+    if path.try_exists().map_err(|e| e.to_string())? {
+        let config = crate::registry::config(root, team)?;
+        if config["attachment_pending"] != true && config["import_pending"] != true {
+            if !explicit {
+                return Ok(());
+            }
+            let binding = &config["remote_binding"];
+            if binding.is_object() {
+                if binding["endpoint"] == crate::sync::endpoint(server)?.as_str() {
+                    return Ok(());
+                }
+                return Err("team is already bound to a different relay".into());
+            }
+        }
     }
-    crate::import::run(root, team, server).await
+    crate::import::run(root, team, server, explicit).await
 }
 
 pub fn join(

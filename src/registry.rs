@@ -50,7 +50,7 @@ pub fn atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     result
 }
 
-fn records(dir: &Path, cfg: &Value) -> Result<Vec<Value>> {
+pub(crate) fn records(dir: &Path, cfg: &Value) -> Result<Vec<Value>> {
     match fs::read_to_string(dir.join("roster.jsonl")) {
         Ok(text) => text
             .lines()
@@ -139,7 +139,7 @@ pub fn join(
     } else {
         json!({"name":team,"team_id":uuid::Uuid::now_v7().to_string(),"agents":{},"created_at":now()?})
     };
-    if cfg["import_pending"] == true {
+    if cfg["import_pending"] == true || cfg["attachment_pending"] == true {
         return Err("team import is incomplete; repeat team import before joining".into());
     }
     if !cfg.is_object() || !cfg["agents"].is_object() {

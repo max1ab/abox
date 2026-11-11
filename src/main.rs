@@ -31,10 +31,7 @@ use cli::{
 
 fn main() -> ExitCode {
     let matches = Cli::command().get_matches();
-    let server_configured = matches!(
-        matches.value_source("server"),
-        Some(ValueSource::CommandLine | ValueSource::EnvVariable)
-    );
+    let server_source = matches.value_source("server");
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
     // Environment restoration and stdio redirection happen before any Tokio
     // threads exist; the OS supervisor owns this single process throughout.
@@ -66,7 +63,7 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match runtime.block_on(run(cli, server_configured)) {
+    match runtime.block_on(run(cli, server_source)) {
         Ok(code) => code,
         Err(error) => {
             eprintln!("agent-mail: {error}");
@@ -75,7 +72,7 @@ fn main() -> ExitCode {
     }
 }
 
-async fn run(mut cli: Cli, server_configured: bool) -> Result<ExitCode, String> {
+async fn run(mut cli: Cli, server_source: Option<ValueSource>) -> Result<ExitCode, String> {
     if let Command::Debug { command } = cli.command {
         cli.command = match command {
             cli::DebugCommand::Hook { command } => Command::Hook { command },
@@ -132,8 +129,19 @@ async fn run(mut cli: Cli, server_configured: bool) -> Result<ExitCode, String> 
             {
                 return Err("this session already has another identity in this team; use that identity or a different receiving session".into());
             }
-            if !create && server_configured {
-                setup::import_for_start(&local, &team, &cli.server).await?;
+            if !create
+                && matches!(
+                    server_source,
+                    Some(ValueSource::CommandLine | ValueSource::EnvVariable)
+                )
+            {
+                setup::import_for_start(
+                    &local,
+                    &team,
+                    &cli.server,
+                    server_source == Some(ValueSource::CommandLine),
+                )
+                .await?;
             }
             setup::join(&local, &team, &name, kind, &project, create)?;
             setup::bind(&local, &team, &name, kind, &project, Some(id), replace)?;

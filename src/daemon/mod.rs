@@ -376,7 +376,7 @@ pub(crate) async fn run(root: &Path) -> Result<()> {
             for team in teams {
                 let name=team["name"].as_str().ok_or("invalid team name")?.to_owned();
                 let cfg=match crate::registry::config(root,&name){Ok(c)=>c,Err(e)=>{state["teams"][&name]=json!({"error":e});continue;}};
-                if cfg["import_pending"]==true||cfg["sync_enabled"]==false||!cfg["remote_binding"].is_object()||!cfg["remote_binding"]["disconnected_at"].is_null(){continue;}
+                if cfg["import_pending"]==true||cfg["attachment_pending"]==true||cfg["sync_enabled"]==false||!cfg["remote_binding"].is_object()||!cfg["remote_binding"]["disconnected_at"].is_null(){continue;}
                 selected.insert(name.clone());
                 if let Some(task)=tasks.sync.get(&name)&&task.is_finished(){
                     let task=tasks.sync.remove(&name).expect("present task");
