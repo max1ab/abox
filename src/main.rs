@@ -152,7 +152,9 @@ async fn run(mut cli: Cli, server_source: Option<ValueSource>) -> Result<ExitCod
             } else {
                 defaults.server.as_deref()
             };
-            if !create && let Some(server) = server {
+            if let Some(server) = server
+                && (!create || setup::attachment_pending(local.root(), &team)?)
+            {
                 setup::import_for_start(
                     &local,
                     &team,
@@ -162,6 +164,9 @@ async fn run(mut cli: Cli, server_source: Option<ValueSource>) -> Result<ExitCod
                 .await?;
             }
             setup::join(&local, &team, &name, kind, &project, create)?;
+            if create && let Some(server) = server {
+                connect::publish(local.root(), &team, server).await?;
+            }
             setup::bind(&local, &team, &name, kind, &project, Some(id), replace)?;
             client::print_jsonl([daemon::start(local.root(), no_login).await?])?;
             Ok(ExitCode::SUCCESS)

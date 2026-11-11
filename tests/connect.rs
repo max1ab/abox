@@ -14,6 +14,9 @@ fn cli(root: &Path, args: &[&str]) -> std::process::Output {
     let mut c = Command::new(env!("CARGO_BIN_EXE_agent-mail"));
     common::clean_environment(&mut c);
     c.env("NO_PROXY", "*")
+        .env_remove("CLAUDE_CODE_SESSION_ID")
+        .env_remove("AGENT_MAIL_SERVER")
+        .env("CODEX_HOME", root.join("codex-profile"))
         .env("AGENT_MAIL_BASH", root.join("no-bash"))
         .arg("--data-dir")
         .arg(root)
@@ -39,7 +42,7 @@ fn fixture() -> tempfile::TempDir {
 }
 #[test]
 fn connect_registers_stable_ids_and_reconciles_an_existing_remote_registration() {
-    for conflict in [false, true] {
+    for (conflict, named) in [(false, false), (true, false), (false, true)] {
         let t = fixture();
         let r = t.path();
         let path = r.join("teams/dev/config.json");
@@ -51,7 +54,7 @@ fn connect_registers_stable_ids_and_reconciles_an_existing_remote_registration()
         let server = thread::spawn(move || {
             let deadline = std::time::Instant::now() + Duration::from_secs(8);
             let mut count = 0;
-            while count < if conflict { 3 } else { 1 } {
+            while count < if conflict || named { 3 } else { 1 } {
                 assert!(
                     std::time::Instant::now() < deadline,
                     "client did not finish protocol"
@@ -109,7 +112,13 @@ fn connect_registers_stable_ids_and_reconciles_an_existing_remote_registration()
                 let line = source.lines().next().unwrap();
                 count += 1;
                 let mut body = json!({"protocol_version":1,"server_instance_id":"019a4000-0000-7000-8000-000000000001","team_id":expected["team_id"],"team_name":"dev","cipher_profile":"none","accepted_envelope_versions":[1],"write_allowed_ciphers":["none"],"min_available_seq":"0"});
-                let code = if line.starts_with("POST /v1/connect ") {
+                body["current_seq"] = json!("0");
+                let publish = if named {
+                    "POST /v1/agent-mail/teams "
+                } else {
+                    "POST /v1/connect "
+                };
+                let code = if line.starts_with(publish) {
                     let payload: Value =
                         serde_json::from_str(source.split_once("\r\n\r\n").unwrap().1).unwrap();
                     assert_eq!(payload["team_id"], expected["team_id"]);
@@ -133,7 +142,30 @@ fn connect_registers_stable_ids_and_reconciles_an_existing_remote_registration()
                 write!(stream,"HTTP/1.1 {code} OK\r\nAgmsg-Protocol-Version: 1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
             }
         });
-        let output = cli(r, &["--server", &endpoint, "team", "connect", "dev"]);
+        let output = if named {
+            let started = cli(
+                r,
+                &[
+                    "--server",
+                    &endpoint,
+                    "start",
+                    "--team",
+                    "dev",
+                    "--name",
+                    "worker",
+                    "--create",
+                    "--type",
+                    "codex",
+                    "--session-id",
+                    "019a4000-0000-7000-8000-000000000005",
+                    "--no-login",
+                ],
+            );
+            let _ = cli(r, &["service", "stop"]);
+            started
+        } else {
+            cli(r, &["--server", &endpoint, "team", "connect", "dev"])
+        };
         server.join().unwrap();
         assert!(
             output.status.success(),
@@ -144,5 +176,9 @@ fn connect_registers_stable_ids_and_reconciles_an_existing_remote_registration()
         assert_eq!(after["team_id"], cfg["team_id"]);
         assert_eq!(after["agents"], cfg["agents"]);
         assert_eq!(after["remote_binding"]["remote_team_id"], cfg["team_id"]);
+        assert_eq!(
+            after["remote_binding"]["history_boundary"].is_object(),
+            named
+        );
     }
 }

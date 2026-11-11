@@ -61,7 +61,7 @@ pub enum Command {
         session: SessionArgs,
         #[arg(long, default_value = ".")]
         project: PathBuf,
-        /// Create a new local team explicitly.
+        /// Create a team. With a configured relay, publish or join it by name.
         #[arg(long)]
         create: bool,
         /// Explicitly move this identity from another session.

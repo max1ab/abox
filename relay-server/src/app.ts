@@ -4,6 +4,7 @@ import type { Config } from "@agmsg/reference-server/dist/src/config.js";
 import type { Pool } from "pg";
 import { collaboration } from "./collaboration.js";
 import { events } from "./events.js";
+import { teams } from "./teams.js";
 
 // The caller owns the pool and closes it after app.close(). No database work
 // happens during construction, so embedding and validation can be tested offline.
@@ -22,5 +23,6 @@ export function createRelayApp(pool: Pool, config: Config): FastifyInstance {
   });
   void app.register(async (scope) => { await collaboration(scope, pool); });
   void app.register(async (scope) => { await events(scope, pool); });
+  void app.register(async (scope) => { teams(scope, pool); });
   return app;
 }

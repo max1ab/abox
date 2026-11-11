@@ -78,6 +78,33 @@ databaseTests("wrapped official protocol with real PostgreSQL", () => {
     await compare(`/v1/teams/${teamId}`);
   });
 
+  it("reuses a team name for concurrent named registrations", async () => {
+    const a = "019a4000-0000-7000-8000-000000000011";
+    const b = "019a4000-0000-7000-8000-000000000012";
+    const publish = (id: string, member: string) => app!.inject({
+      method: "POST", url: "/v1/agent-mail/teams", headers,
+      payload: { team_id: id, team_name: "concurrent", cipher_profile: "none",
+        members: [{ member_id: member, name: `reviewer@${id === a ? "A" : "B"}` }] },
+    });
+    const [first, second] = await Promise.all([publish(a, memberA), publish(b, memberB)]);
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(first.json()).toEqual(second.json());
+    const id = first.json().team_id;
+    expect([a, b]).toContain(id);
+    const resolved = await app!.inject({ method: "GET", url: "/v1/teams?name=concurrent", headers });
+    expect(resolved.json().teams).toMatchObject([{ team_id: id }]);
+    const roster = await app!.inject({
+      method: "GET", url: "/v1/members", headers: { ...headers, "agmsg-team-id": id },
+    });
+    expect(roster.json().members).toMatchObject([{ member_id: id === a ? memberA : memberB }]);
+    const reuse = await app!.inject({
+      method: "POST", url: "/v1/agent-mail/teams", headers,
+      payload: { team_id: a, team_name: "wrapper-test", cipher_profile: "none", members: [] },
+    });
+    expect(reuse.json().team_id).toBe(teamId);
+  });
+
   it("round trips envelopes with stable duplicate acknowledgments and rollback on conflicts", async () => {
     const id = randomUUID();
     const text = "中文\n'quoted' body; @dell";

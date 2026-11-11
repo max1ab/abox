@@ -38,7 +38,7 @@ When machines use the same agent name, add the assigned machine label with `star
 For cross-machine teams:
 
 ```sh
-agent-mail --server URL team connect dev   # publish local team to relay
+agent-mail --server URL start --team dev --name worker --create  # first machine
 agent-mail --server URL start --team dev --name reviewer  # other machine: import and join
 ```
 

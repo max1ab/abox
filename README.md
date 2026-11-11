@@ -50,8 +50,8 @@ Agent 类型通常从运行环境推断；读取不到时传 `--type codex --ses
 跨机器使用同一个中转地址：
 
 ```sh
-# 首台机器：把本地团队连接到中转
-agent-mail --server URL team connect dev
+# 首台机器：创建团队并接入中转
+agent-mail --server URL start --team dev --name worker --create
 # 其他机器：在接收会话中自动导入并加入
 agent-mail --server URL start --team dev --name reviewer
 ```

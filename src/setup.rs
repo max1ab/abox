@@ -143,6 +143,16 @@ pub async fn import_for_start(
     crate::import::run(root, team, server, explicit).await
 }
 
+pub(crate) fn attachment_pending(root: &Path, team: &str) -> Result<bool, String> {
+    crate::store::team_name(team)?;
+    let path = root.join("teams").join(team).join("config.json");
+    if !path.try_exists().map_err(|e| e.to_string())? {
+        return Ok(false);
+    }
+    let config = crate::registry::config(root, team)?;
+    Ok(config["attachment_pending"] == true || config["import_pending"] == true)
+}
+
 pub fn join(
     agmsg: &Agmsg,
     team: &str,

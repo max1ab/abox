@@ -117,6 +117,8 @@ impl Relay {
                         200,
                         json!({"protocol_version":1,"server_instance_id":SERVER,"team_name":"dev","teams":matches}),
                     )
+                } else if path == "/prefix/v1/agent-mail/teams" && first.starts_with("POST ") {
+                    (200, common_body())
                 } else if path == format!("/prefix/v1/teams/{TEAM}")
                     || path == "/prefix/v1/capabilities"
                 {
@@ -268,53 +270,52 @@ fn import_preserves_identity_across_rename() {
 
 #[test]
 fn start_attaches_an_existing_team_without_combining_old_mail() {
-    let t = fixture();
-    let root = t.path();
-    let relay = Relay::new("expanded");
-    let local = cli(
-        root,
-        &[
-            "join",
-            "dev",
-            "--create",
-            "--name",
-            "reviewer@A",
-            "--type",
-            "codex",
-        ],
-    );
-    assert!(
-        local.status.success(),
-        "{}",
-        String::from_utf8_lossy(&local.stderr)
-    );
-    fs::write(root.join("body"), "private local history").unwrap();
-    let sent = cli(
-        root,
-        &[
-            "agmsg",
-            "send",
-            "dev",
-            "--from",
-            "reviewer@A",
-            "--to",
-            "reviewer@A",
-            "--body-file",
-            "body",
-        ],
-    );
-    assert!(
-        sent.status.success(),
-        "{}",
-        String::from_utf8_lossy(&sent.stderr)
-    );
-    let history = || cli(root, &["history", "--team", "dev"]).stdout;
-    let before = history();
-    assert!(String::from_utf8_lossy(&before).contains("private local history"));
-    let original = config(root);
-    let started = cli(
-        root,
-        &[
+    for publish in [false, true] {
+        let t = fixture();
+        let root = t.path();
+        let relay = Relay::new("expanded");
+        let local = cli(
+            root,
+            &[
+                "join",
+                "dev",
+                "--create",
+                "--name",
+                "reviewer@A",
+                "--type",
+                "codex",
+            ],
+        );
+        assert!(
+            local.status.success(),
+            "{}",
+            String::from_utf8_lossy(&local.stderr)
+        );
+        fs::write(root.join("body"), "private local history").unwrap();
+        let sent = cli(
+            root,
+            &[
+                "agmsg",
+                "send",
+                "dev",
+                "--from",
+                "reviewer@A",
+                "--to",
+                "reviewer@A",
+                "--body-file",
+                "body",
+            ],
+        );
+        assert!(
+            sent.status.success(),
+            "{}",
+            String::from_utf8_lossy(&sent.stderr)
+        );
+        let history = || cli(root, &["history", "--team", "dev"]).stdout;
+        let before = history();
+        assert!(String::from_utf8_lossy(&before).contains("private local history"));
+        let original = config(root);
+        let mut args = Vec::from([
             "start",
             "--server",
             &relay.endpoint,
@@ -329,28 +330,32 @@ fn start_attaches_an_existing_team_without_combining_old_mail() {
             "--session-id",
             "019a4000-0000-7000-8000-000000000005",
             "--no-login",
-        ],
-    );
-    let _ = cli(root, &["service", "stop"]);
-    assert!(
-        started.status.success(),
-        "{}",
-        String::from_utf8_lossy(&started.stderr)
-    );
-    let cfg = config(root);
-    assert_eq!(cfg["team_id"], original["team_id"]);
-    assert_eq!(
-        cfg["agents"]["reviewer@A"],
-        original["agents"]["reviewer@A"]
-    );
-    assert_eq!(cfg["agents"]["reviewer@B"]["member_id"], LATER_MEMBER);
-    assert_eq!(cfg["remote_binding"]["remote_team_id"], TEAM);
-    assert_eq!(
-        cfg["remote_binding"]["history_boundary"]["remote_sequence"],
-        3
-    );
-    assert!(cfg.get("attachment_pending").is_none());
-    assert_eq!(history(), before);
+        ]);
+        if publish {
+            args.push("--create");
+        }
+        let started = cli(root, &args);
+        let _ = cli(root, &["service", "stop"]);
+        assert!(
+            started.status.success(),
+            "{}",
+            String::from_utf8_lossy(&started.stderr)
+        );
+        let cfg = config(root);
+        assert_eq!(cfg["team_id"], original["team_id"]);
+        assert_eq!(
+            cfg["agents"]["reviewer@A"],
+            original["agents"]["reviewer@A"]
+        );
+        assert_eq!(cfg["agents"]["reviewer@B"]["member_id"], LATER_MEMBER);
+        assert_eq!(cfg["remote_binding"]["remote_team_id"], TEAM);
+        assert_eq!(
+            cfg["remote_binding"]["history_boundary"]["remote_sequence"],
+            3
+        );
+        assert!(cfg.get("attachment_pending").is_none());
+        assert_eq!(history(), before);
+    }
 }
 
 #[test]

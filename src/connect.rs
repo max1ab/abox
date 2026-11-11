@@ -5,18 +5,30 @@ use serde_json::{Value, json};
 use std::path::Path;
 type Result<T> = std::result::Result<T, String>;
 pub(crate) async fn run(root: &Path, team: &str, server: &str) -> Result<()> {
+    connect(root, team, server, false).await
+}
+
+pub(crate) async fn publish(root: &Path, team: &str, server: &str) -> Result<()> {
+    connect(root, team, server, true).await
+}
+
+async fn connect(root: &Path, team: &str, server: &str, named: bool) -> Result<()> {
     crate::store::team_name(team)?;
     let endpoint = sync::endpoint(server)?;
     let original = {
         let _lock = TeamLock::acquire(&root.join("teams").join(team))?;
         registry::config(root, team)?
     };
-    if original["import_pending"] == true {
+    if original["import_pending"] == true || original["attachment_pending"] == true {
         return Err("finish team import before connecting".into());
     }
-    if original["attachment_pending"] == true
-        || original["remote_binding"]["history_boundary"].is_object()
-    {
+    if named && let Some(binding) = original["remote_binding"].as_object() {
+        if binding.get("endpoint").and_then(Value::as_str) != Some(endpoint.as_str()) {
+            return Err("team is already bound to a different relay".into());
+        }
+        return Ok(());
+    }
+    if original["remote_binding"]["history_boundary"].is_object() {
         return Err(
             "this team uses an existing relay team; retry start to complete attachment".into(),
         );
@@ -48,28 +60,55 @@ pub(crate) async fn run(root: &Path, team: &str, server: &str) -> Result<()> {
         members.push(json!({"name":name,"member_id":member_id}));
     }
     let http = remote::client()?;
+    let route = if named {
+        "v1/agent-mail/teams"
+    } else {
+        "v1/connect"
+    };
     let response = http
         .post(
             endpoint
-                .join("v1/connect")
+                .join(route)
                 .map_err(|_| "invalid connect endpoint")?,
         )
         .header("agmsg-protocol-version", "1")
         .json(&json!({"team_id":id,"team_name":team,"members":members,"cipher_profile":"none"}))
         .send()
         .await
-        .map_err(|_| "remote registration request failed; repeat team connect to reconcile")?;
-    let conflicted = response.status() == reqwest::StatusCode::CONFLICT;
-    let snapshot = if conflicted {
-        remote::json(
-            http.get(
+        .map_err(|_| "remote registration request failed; retry the command to reconcile")?;
+    let snapshot_request = || -> Result<_> {
+        Ok(http
+            .get(
                 endpoint
                     .join(&format!("v1/teams/{id}"))
                     .map_err(|_| "invalid team endpoint")?,
             )
-            .header("agmsg-protocol-version", "1"),
-        )
-        .await?
+            .header("agmsg-protocol-version", "1"))
+    };
+    let reconcile = named || response.status() == reqwest::StatusCode::CONFLICT;
+    let snapshot = if named {
+        let resolution = remote::response_json(response).await?;
+        if resolution["protocol_version"] != 1
+            || resolution["team_name"] != team
+            || !resolution["server_instance_id"]
+                .as_str()
+                .is_some_and(|id| sync::uuid(id, 7))
+            || !resolution["team_id"]
+                .as_str()
+                .is_some_and(|id| sync::uuid(id, 7))
+        {
+            return Err("invalid named team registration response".into());
+        }
+        if resolution["team_id"] != id {
+            return crate::import::run(root, team, server, true).await;
+        }
+        let snapshot = remote::json(snapshot_request()?).await?;
+        if snapshot["server_instance_id"] != resolution["server_instance_id"] {
+            return Err("relay identity changed during team registration".into());
+        }
+        snapshot
+    } else if reconcile {
+        remote::json(snapshot_request()?).await?
     } else {
         remote::response_json(response).await?
     };
@@ -88,7 +127,7 @@ pub(crate) async fn run(root: &Path, team: &str, server: &str) -> Result<()> {
     {
         return Err("server instance changed; local binding was preserved".into());
     }
-    if conflicted {
+    if reconcile {
         let remote = remote::json(
             http.get(
                 endpoint
@@ -115,20 +154,32 @@ pub(crate) async fn run(root: &Path, team: &str, server: &str) -> Result<()> {
             );
         }
     }
-    let _lock = TeamLock::acquire(&root.join("teams").join(team))?;
-    let mut current = registry::config(root, team)?;
-    if current != original {
-        return Err(
-            "local team changed during registration; repeat team connect to reconcile".into(),
-        );
-    }
-    current["remote_binding"] = json!({"endpoint":endpoint.as_str(),"server_instance_id":snapshot["server_instance_id"],"remote_team_id":id,"remote_team_name":team,
+    let mut binding = json!({"endpoint":endpoint.as_str(),"server_instance_id":snapshot["server_instance_id"],"remote_team_id":id,"remote_team_name":team,
         "protocol_version":1,"cipher_profile":"none","capabilities":snapshot,"connected_at":registry::now()?,"disconnected_at":null,
         "binding_revision":original["remote_binding"]["binding_revision"].as_u64().unwrap_or(0)+1});
-    registry::atomic(
-        &root.join("teams").join(team).join("config.json"),
-        current.to_string().as_bytes(),
-    )?;
+    let save = |mut current: Value, binding: Value| {
+        if current != original {
+            return Err("local team changed during registration; retry the command".into());
+        }
+        current["remote_binding"] = binding;
+        registry::atomic(
+            &root.join("teams").join(team).join("config.json"),
+            current.to_string().as_bytes(),
+        )
+    };
+    if named {
+        let store = crate::store::open(root, team)?;
+        let sequence = sync::sequence(
+            snapshot["current_seq"]
+                .as_str()
+                .ok_or("missing remote history boundary")?,
+        )?;
+        binding["history_boundary"] = crate::import::history_boundary(&store, team, sequence)?;
+        save(store.config, binding)?;
+    } else {
+        let _lock = TeamLock::acquire(&root.join("teams").join(team))?;
+        save(registry::config(root, team)?, binding)?;
+    }
     crate::daemon::wake(root);
     println!("Connected {team}. The Rust daemon synchronizes connected teams automatically.");
     Ok(())

@@ -4,6 +4,25 @@ use serde_json::{Value, json};
 use std::{fs, path::Path};
 
 type Result<T> = std::result::Result<T, String>;
+pub(crate) fn history_boundary(
+    store: &crate::store::TeamStore,
+    team: &str,
+    remote_sequence: i64,
+) -> Result<Value> {
+    let (local_event, local_message): (i64, i64) = store
+        .db
+        .query_row(
+            "SELECT COALESCE((SELECT MAX(seq) FROM events WHERE team=?1 AND seq>0),0),
+                COALESCE((SELECT MAX(id) FROM messages WHERE team=?1),0)",
+            [team],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(
+        json!({"local_event":local_event,"local_message":local_message,"remote_sequence":remote_sequence}),
+    )
+}
+
 fn validate_snapshot(value: &Value, team: &str, server: &str, id: &str) -> Result<()> {
     if value["protocol_version"] != 1
         || value["server_instance_id"] != server
@@ -168,17 +187,7 @@ pub async fn run(root: &Path, team: &str, server: &str, attach_existing: bool) -
         {
             return Err("local team changed during attachment; retry start".into());
         }
-        let (local_event, local_message): (i64, i64) = store
-            .db
-            .query_row(
-                "SELECT COALESCE((SELECT MAX(seq) FROM events WHERE team=?1 AND seq>0),0),
-                    COALESCE((SELECT MAX(id) FROM messages WHERE team=?1),0)",
-                [team],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .map_err(|error| error.to_string())?;
-        binding["history_boundary"] = json!({"local_event":local_event,"local_message":local_message,
-            "remote_sequence":remote_sequence});
+        binding["history_boundary"] = history_boundary(&store, team, remote_sequence)?;
         let mut config = store.config;
         config["remote_binding"] = binding;
         config["attachment_pending"] = Value::Bool(true);
