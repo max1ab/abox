@@ -41,11 +41,17 @@ pub enum Command {
         skill_dir: Option<PathBuf>,
         #[arg(long)]
         replace_agmsg: bool,
+        /// Save the team used by start when no --team is provided.
+        #[arg(long)]
+        default_team: Option<String>,
+        /// Save a machine label for new Agent Mail addresses.
+        #[arg(long)]
+        machine: Option<String>,
     },
     /// Register, bind this receiving session and ensure the background service is running.
     Start {
         #[arg(long)]
-        team: String,
+        team: Option<String>,
         #[arg(long)]
         name: String,
         /// Machine label for a qualified address such as reviewer@laptop.

@@ -362,6 +362,45 @@ fn setup_is_repeatable_and_preserves_different_skills_before_changing_hooks() {
     assert_eq!(fs::read_to_string(skill).unwrap(), "my own skill");
 }
 #[test]
+fn start_uses_the_team_and_machine_saved_by_setup() {
+    let t = tempfile::tempdir().unwrap();
+    let r = t.path();
+    ok(command(
+        r,
+        &[
+            "setup",
+            "--type",
+            "codex",
+            "--config",
+            "hooks.json",
+            "--default-team",
+            "dev",
+            "--machine",
+            "A",
+        ],
+    )
+    .output()
+    .unwrap());
+    // Re-running setup without defaults preserves the saved choices.
+    ok(
+        command(r, &["setup", "--type", "codex", "--config", "hooks.json"])
+            .output()
+            .unwrap(),
+    );
+    let started = command(r, &["start", "--name", "worker", "--create", "--no-login"])
+        .env("CODEX_THREAD_ID", FIRST)
+        .output()
+        .unwrap();
+    ok(command(r, &["service", "stop"]).output().unwrap());
+    assert!(ok(started).contains("dev/worker@A"));
+    let roster = ok(command(r, &["list", "--team", "dev"]).output().unwrap());
+    assert_eq!(
+        serde_json::from_str::<Value>(roster.trim()).unwrap()["name"],
+        "worker@A"
+    );
+}
+
+#[test]
 fn start_combines_registration_binding_and_idempotent_service_start() {
     struct Stop<'a>(&'a Path);
     impl Drop for Stop<'_> {
@@ -582,12 +621,23 @@ fn board_uses_current_identity_and_keeps_explicit_remote_reads_available() {
     });
     ok(command(
         r,
-        &["--server", &url, "board", "post", "--body-file", "body"],
+        &[
+            "setup",
+            "--type",
+            "codex",
+            "--config",
+            "hooks.json",
+            "--server",
+            &url,
+        ],
     )
-    .env("NO_PROXY", "*")
-    .env("CODEX_THREAD_ID", FIRST)
     .output()
     .unwrap());
+    ok(command(r, &["board", "post", "--body-file", "body"])
+        .env("NO_PROXY", "*")
+        .env("CODEX_THREAD_ID", FIRST)
+        .output()
+        .unwrap());
     ok(
         command(r, &["--server", &url, "board", "list", "--team", "dev"])
             .env("NO_PROXY", "*")

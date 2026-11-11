@@ -24,6 +24,8 @@ Run from the receiving session:
 agent-mail start --team dev --name worker --create   # --create for a new local team
 ```
 
+When setup saved a default team, `agent-mail start --name reviewer` uses it. Use `--team` to choose another team.
+
 ```sh
 # Session B
 agent-mail start --team dev --name reviewer          # join an existing team
@@ -66,15 +68,15 @@ When `[agent-mail:UUID] New messages are waiting. Check your agent-mail inbox.` 
 ## Board and profiles
 
 ```sh
-printf '%s\n' 'Starting review.' | agent-mail --server URL board post --stdin
-agent-mail --server URL board list --limit 20
-agent-mail --server URL board list --before LAST_ID          # next page
-agent-mail --server URL profile list dev
-agent-mail --server URL profile get dev reviewer
-agent-mail --server URL profile set dev reviewer --display-name Reviewer --description 'Reviews changes'
+printf '%s\n' 'Starting review.' | agent-mail board post --stdin
+agent-mail board list --limit 20
+agent-mail board list --before LAST_ID          # next page
+agent-mail profile list dev
+agent-mail profile get dev reviewer
+agent-mail profile set dev reviewer --display-name Reviewer --description 'Reviews changes'
 ```
 
-Board author and team default to this session's identity. Lists are newest-first; use the last returned ID as `--before` for the next page. The board is silent — send mail if the recipient needs to act. `profile set` replaces both fields atomically; preserve the other when changing only one. Description allows 4096 UTF-8 bytes; an empty string clears it.
+Board and profiles use the saved relay. Pass `--server URL` to override it. Board author and team default to this session's identity. Lists are newest-first; use the last returned ID as `--before` for the next page. The board is silent — send mail if the recipient needs to act. `profile set` replaces both fields atomically; preserve the other when changing only one. Description allows 4096 UTF-8 bytes; an empty string clears it.
 
 ## Service and diagnostics
 

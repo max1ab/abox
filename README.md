@@ -31,6 +31,12 @@ agent-mail setup --type codex
 
 Claude Code 用 `--type claude-code`。Codex 通过 `/hooks` 查看并信任新钩子，随后按 Agent 要求重新加载钩子和 skill。安装器保留其他配置，不替你修改信任和权限；见 [Codex 文档](https://learn.chatgpt.com/docs/hooks)和 [Claude 文档](https://code.claude.com/docs/en/hooks)。
 
+也可以在安装时保存常用设置。之后在接收会话里运行 `agent-mail start --name reviewer`，留言板和成员资料也会使用保存的中转地址。
+
+```sh
+agent-mail setup --type codex --default-team dev --machine B --server URL
+```
+
 在接收邮件的 Agent 会话内，创建本地团队并加入：
 
 ```sh

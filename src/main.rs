@@ -73,6 +73,10 @@ fn main() -> ExitCode {
 }
 
 async fn run(mut cli: Cli, server_source: Option<ValueSource>) -> Result<ExitCode, String> {
+    let server_configured = matches!(
+        server_source,
+        Some(ValueSource::CommandLine | ValueSource::EnvVariable)
+    );
     if let Command::Debug { command } = cli.command {
         cli.command = match command {
             cli::DebugCommand::Hook { command } => Command::Hook { command },
@@ -89,7 +93,14 @@ async fn run(mut cli: Cli, server_source: Option<ValueSource>) -> Result<ExitCod
             config,
             skill_dir,
             replace_agmsg,
+            default_team,
+            machine,
         } => {
+            let defaults = setup::Defaults::validated(
+                default_team,
+                machine,
+                (server_source == Some(ValueSource::CommandLine)).then_some(cli.server.as_str()),
+            )?;
             let kind = agent_type.map(Ok).unwrap_or_else(identity::infer_type)?;
             let local = agmsg::Agmsg::for_setup(cli.agmsg_dir)?;
             let directory = skill_dir.unwrap_or_else(|| {
@@ -102,6 +113,7 @@ async fn run(mut cli: Cli, server_source: Option<ValueSource>) -> Result<ExitCod
             skill::check_install(&directory)?;
             hooks::install(local.root(), kind, config, replace_agmsg, false)?;
             let path = skill::install(&directory)?;
+            defaults.save(local.root())?;
             eprintln!(
                 "Skill installed at {}. Reload skills and review new hooks in your agent.",
                 path.display()
@@ -118,27 +130,33 @@ async fn run(mut cli: Cli, server_source: Option<ValueSource>) -> Result<ExitCod
             replace,
             no_login,
         } => {
-            let name = setup::registration_name(name, machine.as_deref())?;
             // Validate runtime evidence before creating an identity or a team.
             let (kind, id) = identity::runtime(session.agent_type, session.session_id)?;
             let local = agmsg::Agmsg::for_setup(cli.agmsg_dir)?;
+            let defaults = setup::Defaults::load(local.root())?;
+            let team = team
+                .or(defaults.team)
+                .ok_or("provide --team or configure setup --default-team")?;
             daemon::check_legacy(local.root())?;
-            if identity::bindings(local.root(), kind, &id)?
-                .iter()
-                .any(|v| v.team == team && v.name != name)
-            {
+            let bindings = identity::bindings(local.root(), kind, &id)?;
+            let existing = bindings.iter().find(|binding| binding.team == team);
+            let use_saved_machine =
+                !name.contains('@') && existing.is_none_or(|binding| binding.name != name);
+            let machine = machine.or_else(|| defaults.machine.filter(|_| use_saved_machine));
+            let name = setup::registration_name(name, machine.as_deref())?;
+            if existing.is_some_and(|binding| binding.name != name) {
                 return Err("this session already has another identity in this team; use that identity or a different receiving session".into());
             }
-            if !create
-                && matches!(
-                    server_source,
-                    Some(ValueSource::CommandLine | ValueSource::EnvVariable)
-                )
-            {
+            let server = if server_configured {
+                Some(cli.server.as_str())
+            } else {
+                defaults.server.as_deref()
+            };
+            if !create && let Some(server) = server {
                 setup::import_for_start(
                     &local,
                     &team,
-                    &cli.server,
+                    server,
                     server_source == Some(ValueSource::CommandLine),
                 )
                 .await?;
@@ -357,7 +375,9 @@ async fn run(mut cli: Cli, server_source: Option<ValueSource>) -> Result<ExitCod
             Ok(ExitCode::SUCCESS)
         }
         Command::Board { command } => {
-            let client = client::ApiClient::new(&cli.server)?;
+            let server =
+                setup::relay_address(cli.agmsg_dir.clone(), cli.server, server_configured)?;
+            let client = client::ApiClient::new(&server)?;
             match command {
                 BoardCommand::Post {
                     team,
@@ -406,7 +426,9 @@ async fn run(mut cli: Cli, server_source: Option<ValueSource>) -> Result<ExitCod
             Ok(ExitCode::SUCCESS)
         }
         Command::Directory { command } => {
-            let client = client::ApiClient::new(&cli.server)?;
+            let server =
+                setup::relay_address(cli.agmsg_dir.clone(), cli.server, server_configured)?;
+            let client = client::ApiClient::new(&server)?;
             match command {
                 DirectoryCommand::Set {
                     team,

@@ -1,7 +1,96 @@
 //! Setup commands implemented natively against the local mailbox and relay.
-use std::path::Path;
+use serde::{Deserialize, Serialize};
+use std::{
+    fs,
+    io::ErrorKind,
+    path::{Path, PathBuf},
+};
 
 use crate::{agmsg::Agmsg, cli::AgentType};
+
+#[derive(Default, Deserialize, Serialize)]
+pub(crate) struct Defaults {
+    pub team: Option<String>,
+    pub machine: Option<String>,
+    pub server: Option<String>,
+}
+
+impl Defaults {
+    pub(crate) fn load(root: &Path) -> Result<Self, String> {
+        let path = root.join("client.json");
+        match fs::read(&path) {
+            Ok(bytes) => serde_json::from_slice(&bytes)
+                .map_err(|e| format!("invalid client settings in {}: {e}", path.display())),
+            Err(e) if e.kind() == ErrorKind::NotFound => Ok(Self::default()),
+            Err(e) => Err(format!(
+                "cannot read client settings in {}: {e}",
+                path.display()
+            )),
+        }
+    }
+
+    pub(crate) fn validated(
+        team: Option<String>,
+        machine: Option<String>,
+        server: Option<&str>,
+    ) -> Result<Self, String> {
+        if let Some(team) = &team {
+            crate::store::team_name(team)?;
+            if team.chars().count() > 128 {
+                return Err("default team name must be at most 128 characters".into());
+            }
+        }
+        if let Some(machine) = &machine {
+            registration_name("a".into(), Some(machine))?;
+        }
+        let server = server
+            .map(crate::sync::endpoint)
+            .transpose()?
+            .map(|url| url.to_string());
+        Ok(Self {
+            team,
+            machine,
+            server,
+        })
+    }
+
+    pub(crate) fn save(self, root: &Path) -> Result<(), String> {
+        if self.team.is_none() && self.machine.is_none() && self.server.is_none() {
+            return Ok(());
+        }
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(root.join(".agent-mail-init.lock"))
+            .map_err(|e| e.to_string())?;
+        lock.lock().map_err(|e| e.to_string())?;
+        let old = Self::load(root)?;
+        let settings = Self {
+            team: self.team.or(old.team),
+            machine: self.machine.or(old.machine),
+            server: self.server.or(old.server),
+        };
+        crate::registry::atomic(
+            &root.join("client.json"),
+            &serde_json::to_vec_pretty(&settings).map_err(|e| e.to_string())?,
+        )
+    }
+}
+
+pub(crate) fn relay_address(
+    root: Option<PathBuf>,
+    fallback: String,
+    configured: bool,
+) -> Result<String, String> {
+    if configured {
+        return Ok(fallback);
+    }
+    Ok(Defaults::load(&Agmsg::location(root)?)?
+        .server
+        .unwrap_or(fallback))
+}
 
 pub fn registration_name(name: String, machine: Option<&str>) -> Result<String, String> {
     let Some(machine) = machine else {

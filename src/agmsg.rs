@@ -63,7 +63,7 @@ impl Agmsg {
         Ok(client)
     }
 
-    fn location(root: Option<PathBuf>) -> Result<PathBuf, String> {
+    pub(crate) fn location(root: Option<PathBuf>) -> Result<PathBuf, String> {
         if let Some(root) = root {
             return Ok(root);
         }
