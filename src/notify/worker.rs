@@ -16,6 +16,62 @@ pub(crate) struct Report {
 pub(crate) fn groups(root: &Path) -> Result<(BTreeMap<String, Group>, Vec<String>)> {
     groups_for(root, None)
 }
+
+fn bound_target(config: &serde_json::Value, team: &str, name: &str, path: &Path) -> Result<Target> {
+    let record = session::read(path)?;
+    if record.get("team").map(String::as_str) != Some(team)
+        || record.get("agent").map(String::as_str) != Some(name)
+    {
+        return Err("session identity mismatch".into());
+    }
+    let target = Target::from_record(&record)?;
+    let kind = match target.agent_type() {
+        "codex" => AgentType::Codex,
+        _ => AgentType::ClaudeCode,
+    };
+    let project = record.get("project").ok_or("session project missing")?;
+    let project = crate::store::native_path(Path::new(project))
+        .canonicalize()
+        .map_err(|_| "session project unavailable")?;
+    if !registry::registered(config, name, kind, &project) {
+        return Err("session no longer matches local registration".into());
+    }
+    Ok(target)
+}
+
+pub(crate) fn bound_member_ids(
+    root: &Path,
+    team: &str,
+    config: &serde_json::Value,
+    requested: Option<&str>,
+) -> Vec<String> {
+    config["agents"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter_map(|(name, member)| {
+            let id = crate::presence::member_id(member)?;
+            if requested.is_some_and(|requested| requested != id)
+                || !crate::presence::is_local(member)
+            {
+                return None;
+            }
+            let path = binding_path(root, team, name);
+            bound_target(config, team, name, &path)
+                .ok()
+                .map(|_| id.to_owned())
+        })
+        .collect()
+}
+
+fn binding_path(root: &Path, team: &str, name: &str) -> std::path::PathBuf {
+    root.join("run").join(format!(
+        "role-session.{}__{}",
+        session::encode(team),
+        session::encode(name)
+    ))
+}
+
 fn groups_for(
     root: &Path,
     only: Option<(&str, &str)>,
@@ -39,11 +95,7 @@ fn groups_for(
             continue;
         };
         for name in agents.keys() {
-            let path = root.join("run").join(format!(
-                "role-session.{}__{}",
-                session::encode(team),
-                session::encode(name)
-            ));
+            let path = binding_path(root, team, name);
             if !path.try_exists().map_err(|e| e.to_string())? {
                 continue;
             }
@@ -56,24 +108,7 @@ fn groups_for(
                 }
             }
             let read = || -> Result<(Target, i64)> {
-                let record = session::read(&path)?;
-                if record.get("team").map(String::as_str) != Some(team)
-                    || record.get("agent").map(String::as_str) != Some(name)
-                {
-                    return Err("session identity mismatch".into());
-                }
-                let target = Target::from_record(&record)?;
-                let kind = match target.agent_type() {
-                    "codex" => AgentType::Codex,
-                    _ => AgentType::ClaudeCode,
-                };
-                let project = record.get("project").ok_or("session project missing")?;
-                let project = crate::store::native_path(Path::new(project))
-                    .canonicalize()
-                    .map_err(|_| "session project unavailable")?;
-                if !registry::registered(&config, name, kind, &project) {
-                    return Err("session no longer matches local registration".into());
-                }
+                let target = bound_target(&config, team, name, &path)?;
                 let count = match crate::store::open_existing(root, team)? {
                     Some(store) => mailbox::unread_count(&store.db, team, name)?,
                     None => 0,

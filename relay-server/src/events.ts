@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { Pool, PoolClient, Notification } from "pg";
 import type { ServerResponse } from "node:http";
+import { randomUUID } from "node:crypto";
 
 const channel = "agent_mail_events";
 const teamPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -27,7 +28,8 @@ export async function migrateEvents(pool: Pool): Promise<void> {
   } finally { client.release(); }
 }
 
-type Subscriber = { team: string; response: ServerResponse; payload: string };
+type Subscriber = { team: string; response: ServerResponse; payload: string; presence: boolean };
+type Probe = { team: string; finish: (members: string[]) => void };
 class EventHub {
   private client: PoolClient | undefined;
   private starting: Promise<void> | undefined;
@@ -35,6 +37,7 @@ class EventHub {
   private closed = false;
   private timer: ReturnType<typeof setInterval> | undefined;
   private readonly subscribers = new Set<Subscriber>();
+  private readonly probes = new Map<string, Probe>();
   constructor(private readonly pool: Pool) {}
   async start(): Promise<void> {
     if (this.closed) throw new Error("event hub is closing");
@@ -74,6 +77,7 @@ class EventHub {
     const client = this.client; this.client = undefined;
     for (const subscriber of this.subscribers) subscriber.response.destroy();
     this.subscribers.clear();
+    for (const probe of this.probes.values()) probe.finish([]);
     if (client) {
       client.off("notification", this.notified);
       client.off("error", this.failed);
@@ -95,13 +99,36 @@ class EventHub {
     this.subscribers.add(subscriber);
     return () => { this.subscribers.delete(subscriber); };
   }
-  send(subscriber: Subscriber): void {
+  send(subscriber: Subscriber, event = "new_messages", payload = subscriber.payload): boolean {
     // No mail bodies or durable cursor travel in this stream. Backpressure
     // closes a slow subscriber instead of accumulating a per-agent queue.
-    if (subscriber.response.destroyed || subscriber.response.writableEnded) { this.subscribers.delete(subscriber); return; }
-    if (!subscriber.response.write(`event: new_messages\ndata: ${subscriber.payload}\n\n`)) {
+    if (subscriber.response.destroyed || subscriber.response.writableEnded) { this.subscribers.delete(subscriber); return false; }
+    if (!subscriber.response.write(`event: ${event}\ndata: ${payload}\n\n`)) {
       this.subscribers.delete(subscriber); subscriber.response.destroy();
+      return false;
     }
+    return true;
+  }
+  async available(team: string, member: string | undefined): Promise<string[]> {
+    const subscribers = [...this.subscribers].filter(s => s.team === team && s.presence);
+    if (this.probes.size + subscribers.length > 512) throw new Error("too many presence probes");
+    const responses = await Promise.all(subscribers.map(subscriber => new Promise<string[]>(resolve => {
+      const id = randomUUID();
+      const finish = (members: string[]) => {
+        clearTimeout(timer);
+        this.probes.delete(id);
+        resolve(members);
+      };
+      const timer = setTimeout(() => finish([]), 1000);
+      this.probes.set(id, { team, finish });
+      const payload = JSON.stringify({ ...JSON.parse(subscriber.payload), probe_id: id, member_id: member });
+      if (!this.send(subscriber, "presence_probe", payload)) finish([]);
+    })));
+    return [...new Set(responses.flat())].filter(id => member === undefined || id === member);
+  }
+  answer(team: string, id: string, members: string[]): void {
+    const probe = this.probes.get(id);
+    if (probe?.team === team) probe.finish(members);
   }
   async close(): Promise<void> {
     this.closed = true;
@@ -112,7 +139,40 @@ class EventHub {
 
 export async function events(app: FastifyInstance, pool: Pool): Promise<void> {
   const hub = new EventHub(pool);
+  const identity = async (team: string) => (await pool.query(
+    `SELECT 1 AS protocol_version, m.server_instance_id::text, t.team_id::text
+     FROM server_metadata m CROSS JOIN teams t WHERE m.singleton=TRUE AND t.team_id=$1`,
+    [team],
+  )).rows[0];
   app.addHook("preClose", async () => { await hub.close(); });
+  app.get<{ Querystring: { member_id?: string } }>("/v1/agent-mail/presence", async (request, reply) => {
+    const team = request.headers["agmsg-team-id"];
+    const member = request.query.member_id;
+    if (request.headers["agmsg-protocol-version"] !== "1" || typeof team !== "string" || !teamPattern.test(team)
+        || (member !== undefined && (typeof member !== "string" || !teamPattern.test(member)))) {
+      return reply.code(400).send({ error: "invalid presence query" });
+    }
+    const binding = await identity(team);
+    if (!binding) return reply.code(404).send({ error: "team not found" });
+    try {
+      const members = await hub.available(team, member);
+      return reply.header("agmsg-protocol-version", "1").header("cache-control", "no-store").send({ ...binding, members });
+    } catch {
+      return reply.code(503).send({ error: "presence temporarily unavailable" });
+    }
+  });
+  app.post<{ Params: { id: string }; Body: { members?: unknown } }>(
+    "/v1/agent-mail/presence/:id", { bodyLimit: 256 * 1024 }, async (request, reply) => {
+      const team = request.headers["agmsg-team-id"];
+      const members = request.body?.members;
+      if (request.headers["agmsg-protocol-version"] !== "1" || typeof team !== "string" || !teamPattern.test(team)
+          || !Array.isArray(members) || !members.every(id => typeof id === "string" && teamPattern.test(id))) {
+        return reply.code(400).send({ error: "invalid presence response" });
+      }
+      hub.answer(team, request.params.id, members);
+      return reply.code(204).send();
+    },
+  );
   app.get("/v1/agent-mail/events", async (request, reply) => {
     const team = request.headers["agmsg-team-id"];
     if (request.headers["agmsg-protocol-version"] !== "1" || typeof team !== "string" || !teamPattern.test(team)) {
@@ -122,11 +182,11 @@ export async function events(app: FastifyInstance, pool: Pool): Promise<void> {
       // Subscribe before querying team identity; send an initial hint after
       // adding the HTTP stream. This closes the subscribe/pull startup race.
       await hub.start();
-      const identity = await pool.query(`SELECT 1 AS protocol_version, m.server_instance_id::text, t.team_id::text
-        FROM server_metadata m CROSS JOIN teams t WHERE m.singleton=TRUE AND t.team_id=$1`, [team]);
-      if (!identity.rows.length) return reply.code(404).send({ error: "team not found" });
+      const binding = await identity(team);
+      if (!binding) return reply.code(404).send({ error: "team not found" });
       if (request.raw.destroyed) return;
-      const subscriber = { team, response: reply.raw, payload: JSON.stringify(identity.rows[0]) };
+      const subscriber = { team, response: reply.raw, payload: JSON.stringify(binding),
+        presence: request.headers["agent-mail-presence"] === "1" };
       const remove = hub.add(subscriber);
       reply.hijack();
       reply.raw.writeHead(200, {

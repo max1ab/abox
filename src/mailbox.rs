@@ -55,6 +55,10 @@ pub fn teams(root: &Path) -> Result<Vec<Value>, String> {
 
 pub fn members(root: &Path, team: &str) -> Result<Vec<crate::agmsg::Member>, String> {
     let config = crate::registry::config(root, team)?;
+    members_from_config(&config)
+}
+
+pub(crate) fn members_from_config(config: &Value) -> Result<Vec<crate::agmsg::Member>, String> {
     if config["import_pending"] == true {
         return Err("team import is incomplete; repeat team import before querying mail".into());
     }

@@ -24,6 +24,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
 ```
 
 更新后检查健康接口、私信收发、留言板和通讯录。数据库表结构由服务启动时初始化。
+先更新中转，再更新收件端客户端并重启后台，最后用新版客户端发信。旧后台仍可同步邮件，但不会回应可达性探测。混合版本期间，新版发件端会隐藏旧后台上的成员，并拒绝向它们发信。
 
 客户端运行 `agent-mail service start`，一个后台负责全部已连接团队及本地通知。`service stop` 停止后台并移除用户登录任务；`debug sync stop/start <team>` 单独暂停或恢复团队。首次替换旧安装须先停用 agmsgd 和旧钩子，避免双引擎。
 

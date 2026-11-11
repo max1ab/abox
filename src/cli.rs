@@ -79,10 +79,13 @@ pub enum Command {
         #[arg(long)]
         stdin: bool,
     },
-    /// List registered members locally, across all teams or one --team (JSONL).
+    /// List local and currently reachable remote members (JSONL).
     List {
         #[arg(long)]
         team: Option<String>,
+        /// Show the full registered roster without checking reachability.
+        #[arg(long)]
+        all: bool,
     },
     /// Query mail history without marking it read (JSONL).
     History {

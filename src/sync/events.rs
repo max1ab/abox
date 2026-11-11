@@ -37,13 +37,39 @@ impl Target {
             drivers: context.store.config["drivers"].clone(),
         })
     }
-    fn unchanged(&self) -> bool {
+    fn current_config(&self) -> Option<Value> {
         fs::read(&self.config_path)
             .ok()
             .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-            .is_some_and(|config| {
-                config["remote_binding"] == self.binding && config["drivers"] == self.drivers
+            .filter(|config| {
+                config["remote_binding"] == self.binding
+                    && config["drivers"] == self.drivers
+                    && config["sync_enabled"] != false
+                    && config["import_pending"] != true
             })
+    }
+
+    async fn answer_presence(&self, root: &Path, team: &str, client: &Client, value: &Value) {
+        let Some(id) = value["probe_id"].as_str().filter(|id| super::uuid(id, 4)) else {
+            return;
+        };
+        let Ok(url) = self.url.join(&format!("presence/{id}")) else {
+            return;
+        };
+        let Some(config) = self.current_config() else {
+            return;
+        };
+        let members =
+            crate::notify::bound_member_ids(root, team, &config, value["member_id"].as_str());
+        // A timed-out presence request is independent of the mail stream.
+        let _ = client
+            .post(url)
+            .header("agmsg-protocol-version", "1")
+            .header("agmsg-team-id", &self.team)
+            .timeout(Duration::from_secs(1))
+            .json(&serde_json::json!({ "members": members }))
+            .send()
+            .await;
     }
 }
 
@@ -101,7 +127,13 @@ impl Parser {
     }
 }
 
-async fn stream(target: Target, wake: &Notify, mode: &AtomicU8) -> Result<()> {
+async fn stream(
+    root: &Path,
+    team: &str,
+    target: Target,
+    wake: &Notify,
+    mode: &AtomicU8,
+) -> Result<()> {
     let client = Client::builder()
         .connect_timeout(Duration::from_secs(5))
         .redirect(reqwest::redirect::Policy::none())
@@ -112,6 +144,7 @@ async fn stream(target: Target, wake: &Notify, mode: &AtomicU8) -> Result<()> {
         .header("accept", "text/event-stream")
         .header("agmsg-protocol-version", "1")
         .header("agmsg-team-id", &target.team)
+        .header("agent-mail-presence", "1")
         .send();
     let mut response = tokio::time::timeout(Duration::from_secs(10), request)
         .await
@@ -139,7 +172,7 @@ async fn stream(target: Target, wake: &Notify, mode: &AtomicU8) -> Result<()> {
     loop {
         let chunk = tokio::select! {
             _=check.tick()=>{
-                if !target.unchanged() {return Err("event binding changed".into());}
+                if target.current_config().is_none() {return Err("event binding changed".into());}
                 continue;
             },
             _=tokio::time::sleep_until(deadline)=>return Err("event stream heartbeat timed out".into()),
@@ -150,7 +183,7 @@ async fn stream(target: Target, wake: &Notify, mode: &AtomicU8) -> Result<()> {
         };
         deadline = tokio::time::Instant::now() + Duration::from_secs(45);
         for (event, data) in parser.feed(&chunk)? {
-            if event != "new_messages" {
+            if !matches!(event.as_str(), "new_messages" | "presence_probe") {
                 continue;
             }
             let value: Value = serde_json::from_str(&data).map_err(|_| "invalid event JSON")?;
@@ -160,7 +193,11 @@ async fn stream(target: Target, wake: &Notify, mode: &AtomicU8) -> Result<()> {
             {
                 return Err("event binding does not match connected team".into());
             }
-            wake.notify_one();
+            if event == "presence_probe" {
+                target.answer_presence(root, team, &client, &value).await;
+            } else {
+                wake.notify_one();
+            }
         }
     }
 }
@@ -170,7 +207,7 @@ pub(super) async fn follow(root: PathBuf, team: String, wake: Arc<Notify>, mode:
     loop {
         let began = std::time::Instant::now();
         if let Ok(target) = Target::load(&root, &team) {
-            let _ = stream(target, &wake, &mode).await;
+            let _ = stream(&root, &team, target, &wake, &mode).await;
         }
         if mode.swap(2, Ordering::Relaxed) != 2 {
             wake.notify_one();

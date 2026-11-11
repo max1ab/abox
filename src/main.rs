@@ -12,6 +12,7 @@ mod import;
 mod mailbox;
 mod native_send;
 mod notify;
+mod presence;
 mod registry;
 mod remote;
 mod session;
@@ -144,20 +145,9 @@ async fn run(mut cli: Cli) -> Result<ExitCode, String> {
                 .await?;
             Ok(ExitCode::SUCCESS)
         }
-        Command::List { team } => {
+        Command::List { team, all } => {
             let local = agmsg::Agmsg::new(cli.agmsg_dir)?;
-            let teams = match team {
-                Some(team) => vec![serde_json::json!({"name":team})],
-                None => mailbox::teams(local.root())?,
-            };
-            let mut entries = vec![];
-            for team in teams {
-                let name = team["name"].as_str().ok_or("invalid team name")?;
-                for member in local.members(name)? {
-                    entries.push(serde_json::json!({"team":name,"name":member.name,"types":member.types,"project":member.project}));
-                }
-            }
-            client::print_jsonl(entries)?;
+            presence::list(local.root(), team, all).await?;
             Ok(ExitCode::SUCCESS)
         }
         Command::History {

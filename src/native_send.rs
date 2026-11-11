@@ -5,7 +5,6 @@ use std::{
     fs,
     io::{self, Read},
     path::Path,
-    time::Duration,
 };
 
 pub async fn send(
@@ -38,9 +37,11 @@ pub async fn send(
         let recipient = store.config["agents"][to].clone();
         // The relay check must not hold the registry lock or a SQLite connection.
         drop(store);
-        check_relay(binding).await.map_err(|error| {
-            format!("cannot send to remote agent '{to}' in team '{team}': {error}. Retry when the relay is available")
-        })?;
+        check_recipient(binding, &recipient)
+            .await
+            .map_err(|error| {
+                format!("cannot send to remote agent '{to}' in team '{team}': {error}")
+            })?;
         let store = crate::store::open(root, team)?;
         if recipient_relay(&store.config, team, from, to)? != Some(binding)
             || store.config["agents"][to] != recipient
@@ -119,11 +120,7 @@ fn recipient_relay<'a>(
         }
     }
     let recipient = &agents[to];
-    let local = recipient["registrations"].as_array().map_or_else(
-        || recipient["type"].is_string(),
-        |registrations| !registrations.is_empty(),
-    );
-    if local {
+    if crate::presence::is_local(recipient) {
         return Ok(None);
     }
     let binding = &cfg["remote_binding"];
@@ -138,30 +135,18 @@ fn recipient_relay<'a>(
     Ok(Some(binding))
 }
 
-async fn check_relay(binding: &Value) -> Result<(), String> {
-    if binding["protocol_version"] != 1 || binding["cipher_profile"] != "none" {
-        return Err("remote delivery requires a protocol 1 plaintext binding".into());
+async fn check_recipient(binding: &Value, recipient: &Value) -> Result<(), String> {
+    let member = crate::presence::member_id(recipient).ok_or("invalid remote member identity")?;
+    let relay = crate::presence::Relay::from_binding(binding)?;
+    let client = crate::remote::client()?;
+    let capabilities = relay.request(&client, "v1/capabilities")?;
+    let (caps, reachable) =
+        tokio::try_join!(relay.json(capabilities), relay.query(&client, Some(member)))?;
+    crate::sync::plaintext_policy(&caps)?;
+    if !reachable.contains(member) {
+        return Err("recipient is currently unreachable; message was not queued".into());
     }
-    let endpoint = binding["endpoint"]
-        .as_str()
-        .ok_or("missing relay endpoint")?;
-    let server = binding["server_instance_id"]
-        .as_str()
-        .ok_or("missing relay ID")?;
-    let team = binding["remote_team_id"]
-        .as_str()
-        .ok_or("missing remote team ID")?;
-    if !crate::sync::uuid(server, 7) || !crate::sync::uuid(team, 7) {
-        return Err("invalid connected server/team identity".into());
-    }
-    let url = crate::sync::endpoint(endpoint)?
-        .join("v1/capabilities")
-        .map_err(|_| "invalid relay route")?;
-    let request = crate::remote::client()?
-        .get(url)
-        .timeout(Duration::from_secs(3));
-    let caps = crate::remote::team_json(request, server, team).await?;
-    crate::sync::plaintext_policy(&caps)
+    Ok(())
 }
 
 #[cfg(test)]

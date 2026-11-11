@@ -142,10 +142,14 @@ fn send_resolves_the_session_and_refuses_ambiguous_or_foreign_bindings() {
     assert!(!inbox.contains("please review"));
 }
 #[test]
-fn local_send_works_when_remote_send_in_the_same_team_is_rejected() {
+fn list_and_send_follow_remote_reachability_without_interrupting_local_mail() {
     use std::{
         io::{BufRead, BufReader, Write},
         net::TcpListener,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
         thread,
         time::{Duration, Instant},
     };
@@ -162,9 +166,10 @@ fn local_send_works_when_remote_send_in_the_same_team_is_rejected() {
     let mut config: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     let server_id = uuid::Uuid::now_v7().to_string();
     let team_id = config["team_id"].as_str().unwrap().to_owned();
-    config["agents"]["remote"] = serde_json::json!({
-        "member_id": uuid::Uuid::now_v7().to_string(), "registrations": []
-    });
+    let remote = uuid::Uuid::now_v7().to_string();
+    let another = uuid::Uuid::now_v7().to_string();
+    config["agents"]["remote"] = serde_json::json!({"member_id": remote, "registrations": []});
+    config["agents"]["another"] = serde_json::json!({"member_id": another, "registrations": []});
     config["remote_binding"] = serde_json::json!({
         "endpoint": format!("http://{}", listener.local_addr().unwrap()),
         "server_instance_id": server_id, "remote_team_id": team_id,
@@ -173,6 +178,8 @@ fn local_send_works_when_remote_send_in_the_same_team_is_rejected() {
     fs::write(path, config.to_string()).unwrap();
 
     ok(send(r, Some("dev")));
+    let list = |args: &[&str]| command(r, args).env("NO_PROXY", "*").output().unwrap();
+    assert_eq!(ok(list(&["list", "--all"])).lines().count(), 4);
     assert_eq!(
         listener.accept().unwrap_err().kind(),
         std::io::ErrorKind::WouldBlock
@@ -185,6 +192,8 @@ fn local_send_works_when_remote_send_in_the_same_team_is_rejected() {
     let history = || ok(command(r, &["history", "--team", "dev"]).output().unwrap());
     let before = history();
 
+    let reachable = Arc::new(AtomicBool::new(false));
+    let remote_online = reachable.clone();
     let relay = thread::spawn(move || {
         let capabilities = serde_json::json!({
             "server_instance_id": server_id, "team_id": team_id, "protocol_version": 1,
@@ -192,11 +201,9 @@ fn local_send_works_when_remote_send_in_the_same_team_is_rejected() {
             "write_allowed_ciphers": ["none"]
         })
         .to_string();
-        for (status, body) in [
-            ("503 Service Unavailable", ""),
-            ("200 OK", capabilities.as_str()),
-        ] {
-            let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(12);
+        // Three list requests and two requests for each remote send.
+        for _ in 0..9 {
             let mut stream = loop {
                 match listener.accept() {
                     Ok((stream, _)) => break stream,
@@ -214,7 +221,7 @@ fn local_send_works_when_remote_send_in_the_same_team_is_rejected() {
             let mut request = BufReader::new(&stream);
             let mut line = String::new();
             request.read_line(&mut line).unwrap();
-            assert!(line.starts_with("GET /v1/capabilities "));
+            let route = line.split_whitespace().nth(1).unwrap().to_owned();
             loop {
                 line.clear();
                 assert_ne!(request.read_line(&mut line).unwrap(), 0);
@@ -222,7 +229,31 @@ fn local_send_works_when_remote_send_in_the_same_team_is_rejected() {
                     break;
                 }
             }
-            write!(stream, "HTTP/1.1 {status}\r\nAgmsg-Protocol-Version: 1\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            let body = match route.as_str() {
+                "/v1/capabilities" => capabilities.clone(),
+                "/v1/agent-mail/presence" => {
+                    let members = if remote_online.load(Ordering::SeqCst) {
+                        vec![&remote, &another]
+                    } else {
+                        vec![]
+                    };
+                    serde_json::json!({"server_instance_id":server_id,"team_id":team_id,
+                        "protocol_version":1,"members":members})
+                    .to_string()
+                }
+                _ => {
+                    assert_eq!(route, format!("/v1/agent-mail/presence?member_id={remote}"));
+                    let members = if remote_online.load(Ordering::SeqCst) {
+                        vec![&remote]
+                    } else {
+                        vec![]
+                    };
+                    serde_json::json!({"server_instance_id":server_id,"team_id":team_id,
+                        "protocol_version":1,"members":members})
+                    .to_string()
+                }
+            };
+            write!(stream, "HTTP/1.1 200 OK\r\nAgmsg-Protocol-Version: 1\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
         }
     });
     let send_remote = || {
@@ -232,16 +263,33 @@ fn local_send_works_when_remote_send_in_the_same_team_is_rejected() {
             .output()
             .unwrap()
     };
+    let offline = ok(list(&["list"]));
+    assert_eq!(offline.lines().count(), 2);
+    assert!(!offline.contains("\"name\":\"remote\""));
     let failed = send_remote();
     assert!(!failed.status.success());
-    assert!(String::from_utf8_lossy(&failed.stderr).contains("HTTP 503"));
+    assert!(String::from_utf8_lossy(&failed.stderr).contains("recipient is currently unreachable"));
     assert_eq!(history(), before);
+
+    reachable.store(true, Ordering::SeqCst);
+    let online = ok(list(&["list", "--team", "dev"]));
+    assert_eq!(online.lines().count(), 4);
+    assert!(online.contains("\"name\":\"remote\""));
+    assert!(online.contains("\"name\":\"another\""));
     assert!(ok(send_remote()).contains("Queued for remote delivery"));
-    relay.join().unwrap();
     let queued = history();
     assert_eq!(queued.lines().count(), before.lines().count() + 1);
 
+    reachable.store(false, Ordering::SeqCst);
+    assert_eq!(ok(list(&["list"])), offline);
+    assert!(!send_remote().status.success());
+    relay.join().unwrap();
+    assert_eq!(history(), queued);
+
     // The listener is now closed. A transport error also leaves the outbox unchanged.
+    let local_only = list(&["list"]);
+    assert!(String::from_utf8_lossy(&local_only.stderr).contains("could not check remote members"));
+    assert_eq!(ok(local_only), offline);
     let disconnected = send_remote();
     assert!(!disconnected.status.success());
     assert!(String::from_utf8_lossy(&disconnected.stderr).contains("remote request failed"));

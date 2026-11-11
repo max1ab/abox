@@ -44,8 +44,9 @@ Data root: `~/.agents/skills/agent-mail` (if VERSION marker present) → existin
 ## Mail
 
 ```sh
-agent-mail list                                             # registered members, all teams
+agent-mail list                                             # local and reachable remote members
 agent-mail list --team dev                                  # one team
+agent-mail list --all                                       # full roster saved locally
 printf '%s\n' 'Please review PR #42.' | agent-mail send reviewer --stdin
 agent-mail send reviewer --file /path/to/task.txt
 agent-mail inbox
@@ -55,7 +56,7 @@ agent-mail history --team dev --agent reviewer --limit 5
 
 `send` infers the sender from this session's binding. Pass `--team dev` when bound to multiple teams — the same applies to `history` and board operations. Compose the body with `--stdin` or point to an existing file with `--file PATH` (alias `--body-file`); both trim trailing newlines.
 
-Local mail works offline. `Queued for remote delivery` means the relay check passed and background delivery is pending. If the relay check fails the message is not queued; retry when the relay is available. `history` does not mark mail read.
+Local mail and local member lookup work offline. `list` checks remote reachability on demand. If a team's remote check fails, it warns on stderr and still lists that team's local members. `Queued for remote delivery` means the recipient's background service responded and delivery is pending. If the reachability check fails, the message is not queued. Retry once the recipient is reachable again. `history` does not mark mail read.
 
 When `[agent-mail:UUID] New messages are waiting. Check your agent-mail inbox.` arrives, run `agent-mail inbox`. It reads every mailbox for this session across all teams and acknowledges the pending reminder. Pass `--notification UUID` from the notice when needed to resolve the nonce. Old notices with an explicit `--notification NONCE` command remain supported.
 
