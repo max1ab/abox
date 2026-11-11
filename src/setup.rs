@@ -4,7 +4,23 @@ use std::path::Path;
 use crate::{agmsg::Agmsg, cli::AgentType};
 
 pub async fn import(agmsg: &Agmsg, team: &str, server: &str) -> Result<(), String> {
-    crate::import::run(agmsg.root(), team, server).await
+    crate::import::run(agmsg.root(), team, server).await?;
+    println!(
+        "Imported team {team}. Run agent-mail start --team {team} --name NAME from the receiving session."
+    );
+    Ok(())
+}
+
+pub async fn import_for_start(agmsg: &Agmsg, team: &str, server: &str) -> Result<(), String> {
+    crate::store::team_name(team)?;
+    let root = agmsg.root();
+    let path = root.join("teams").join(team).join("config.json");
+    if path.try_exists().map_err(|e| e.to_string())?
+        && crate::registry::config(root, team)?["import_pending"] != true
+    {
+        return Ok(());
+    }
+    crate::import::run(root, team, server).await
 }
 
 pub fn join(

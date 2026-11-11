@@ -292,7 +292,11 @@ fn list_and_send_follow_remote_reachability_without_interrupting_local_mail() {
     assert_eq!(ok(local_only), offline);
     let disconnected = send_remote();
     assert!(!disconnected.status.success());
-    assert!(String::from_utf8_lossy(&disconnected.stderr).contains("remote request failed"));
+    let error = String::from_utf8_lossy(&disconnected.stderr);
+    assert!(
+        error.contains("cannot send to remote agent 'remote'"),
+        "{error}"
+    );
     assert_eq!(history(), queued);
 }
 

@@ -23,14 +23,19 @@ mod sync;
 
 use std::process::ExitCode;
 
-use clap::Parser;
+use clap::{CommandFactory, FromArgMatches, parser::ValueSource};
 use cli::{
     AgmsgCommand, BoardCommand, Cli, Command, DirectoryCommand, SkillCommand, SyncCommand,
     TeamCommand,
 };
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let matches = Cli::command().get_matches();
+    let server_configured = matches!(
+        matches.value_source("server"),
+        Some(ValueSource::CommandLine | ValueSource::EnvVariable)
+    );
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
     // Environment restoration and stdio redirection happen before any Tokio
     // threads exist; the OS supervisor owns this single process throughout.
     let _log = if matches!(
@@ -61,7 +66,7 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match runtime.block_on(run(cli)) {
+    match runtime.block_on(run(cli, server_configured)) {
         Ok(code) => code,
         Err(error) => {
             eprintln!("agent-mail: {error}");
@@ -70,7 +75,7 @@ fn main() -> ExitCode {
     }
 }
 
-async fn run(mut cli: Cli) -> Result<ExitCode, String> {
+async fn run(mut cli: Cli, server_configured: bool) -> Result<ExitCode, String> {
     if let Command::Debug { command } = cli.command {
         cli.command = match command {
             cli::DebugCommand::Hook { command } => Command::Hook { command },
@@ -124,6 +129,9 @@ async fn run(mut cli: Cli) -> Result<ExitCode, String> {
                 .any(|v| v.team == team && v.name != name)
             {
                 return Err("this session already has another identity in this team; use that identity or a different receiving session".into());
+            }
+            if !create && server_configured {
+                setup::import_for_start(&local, &team, &cli.server).await?;
             }
             setup::join(&local, &team, &name, kind, &project, create)?;
             setup::bind(&local, &team, &name, kind, &project, Some(id), replace)?;

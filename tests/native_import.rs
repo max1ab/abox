@@ -142,6 +142,13 @@ impl Relay {
                         page["has_more"] = json!(false);
                         (200, page)
                     }
+                } else if path == "/prefix/v1/agent-mail/events"
+                    || (first.starts_with("POST ") && path == "/prefix/v1/messages")
+                {
+                    (
+                        503,
+                        json!({"error":"background sync unavailable in fixture"}),
+                    )
                 } else {
                     panic!("unexpected request {first}");
                 };
@@ -168,6 +175,9 @@ fn cli(root: &Path, args: &[&str]) -> Output {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_agent-mail"));
     common::clean_environment(&mut cmd);
     cmd.env("AGENT_MAIL_BASH", root.join("bash-must-not-run"))
+        .env_remove("AGENT_MAIL_SERVER")
+        .env_remove("CLAUDE_CODE_SESSION_ID")
+        .env("CODEX_HOME", root.join("codex-profile"))
         .env("NO_PROXY", "*")
         .current_dir(root)
         .arg("--agmsg-dir")
@@ -183,6 +193,56 @@ fn fixture() -> tempfile::TempDir {
 }
 fn config(root: &Path) -> Value {
     serde_json::from_slice(&fs::read(root.join("teams/dev/config.json")).unwrap()).unwrap()
+}
+
+#[test]
+fn start_imports_and_binds_after_a_retry() {
+    let t = fixture();
+    let root = t.path();
+    let relay = Relay::new("resume");
+    let run = || {
+        cli(
+            root,
+            &[
+                "start",
+                "--server",
+                &relay.endpoint,
+                "--team",
+                "dev",
+                "--name",
+                "worker",
+                "--type",
+                "codex",
+                "--session-id",
+                "019a4000-0000-7000-8000-000000000005",
+                "--no-login",
+            ],
+        )
+    };
+    let failed = run();
+    assert!(!failed.status.success());
+    assert_eq!(config(root)["import_pending"], true);
+    assert!(config(root)["agents"].get("worker").is_none());
+
+    relay.fail.store(false, Ordering::SeqCst);
+    let success = run();
+    let stopped = cli(root, &["service", "stop"]);
+    assert!(
+        success.status.success(),
+        "{}",
+        String::from_utf8_lossy(&success.stderr)
+    );
+    assert!(
+        stopped.status.success(),
+        "{}",
+        String::from_utf8_lossy(&stopped.stderr)
+    );
+    let cfg = config(root);
+    assert!(cfg.get("import_pending").is_none());
+    assert_eq!(cfg["agents"]["receiver"]["member_id"], MEMBER);
+    assert!(cfg["agents"]["worker"]["member_id"].is_string());
+    let session = fs::read_to_string(root.join("run/role-session.dev__worker")).unwrap();
+    assert!(session.contains("019a4000-0000-7000-8000-000000000005"));
 }
 #[test]
 fn paged_import_resumes_without_uploading_or_duplicating_history() {

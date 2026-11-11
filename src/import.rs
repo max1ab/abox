@@ -135,7 +135,7 @@ pub async fn run(root: &Path, team: &str, server: &str) -> Result<()> {
         crate::store::initialize(root, team, &registry::config(root, team)?)?;
     }
     sync::bootstrap(root, team).await.map_err(|e| {
-        format!("{e}; import is incomplete, repeat team import with the same --server to resume")
+        format!("{e}; import is incomplete, retry with the same --server to resume")
     })?;
     {
         let _lock = TeamLock::acquire(&dir)?;
@@ -151,8 +151,5 @@ pub async fn run(root: &Path, team: &str, server: &str) -> Result<()> {
             .remove("import_pending");
         registry::atomic(&dir.join("config.json"), config.to_string().as_bytes())?;
     }
-    println!(
-        "Imported team {team}. Register with join, bind the receiving session, then run sync enable {team}."
-    );
     Ok(())
 }

@@ -35,8 +35,7 @@ For cross-machine teams:
 
 ```sh
 agent-mail --server URL team connect dev   # publish local team to relay
-agent-mail --server URL team import dev    # other machine: import, then start
-agent-mail start --team dev --name reviewer
+agent-mail --server URL start --team dev --name reviewer  # other machine: import and join
 ```
 
 Data root: `~/.agents/skills/agent-mail` (if VERSION marker present) → existing agmsg root → `~/.agent-mail`. Override with `--data-dir PATH` or `AGENT_MAIL_DATA_DIR`. `--server URL` (env `AGENT_MAIL_SERVER`, default `http://127.0.0.1:8787`) covers board, profiles, and team operations; background sync uses the address saved with each team.

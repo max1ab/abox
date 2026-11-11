@@ -17,7 +17,7 @@ pub struct Cli {
         env = "AGENT_MAIL_DATA_DIR"
     )]
     pub agmsg_dir: Option<PathBuf>,
-    /// Relay server for the shared board and profiles.
+    /// Relay server for remote team setup, the shared board and profiles.
     #[arg(
         long,
         global = true,
@@ -52,7 +52,7 @@ pub enum Command {
         session: SessionArgs,
         #[arg(long, default_value = ".")]
         project: PathBuf,
-        /// Create a new local team explicitly; import existing remote teams first.
+        /// Create a new local team explicitly.
         #[arg(long)]
         create: bool,
         /// Explicitly move this identity from another session.
