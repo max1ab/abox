@@ -309,19 +309,9 @@ pub(crate) async fn bootstrap(root: &Path, team: &str) -> Result<()> {
                 .as_array()
                 .ok_or("invalid remote membership snapshot")?;
             let _guard = ctx.guard()?;
-            let config = crate::registry::config(root, team)?;
-            let agents = config["agents"]
-                .as_object()
-                .ok_or("invalid imported roster")?;
-            let matched = members.len() == agents.len()
-                && members.iter().all(|m| {
-                    m["name"].as_str().is_some_and(|name| {
-                        agents
-                            .get(name)
-                            .is_some_and(|a| a["member_id"] == m["member_id"])
-                    })
-                });
-            if !matched {
+            // The relay's membership snapshot records the initial roster.
+            // Later joins, renames and departures live in the roster journal.
+            if !roster::Roster::load(&ctx)?.covers_initial_members(members) {
                 return Err("remote membership is not represented by the available journal; retry after source synchronization".into());
             }
             return Ok(());

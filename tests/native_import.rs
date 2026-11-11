@@ -18,6 +18,7 @@ mod common;
 const SERVER: &str = "019a4000-0000-7000-8000-000000000001";
 const TEAM: &str = "019a4000-0000-7000-8000-000000000002";
 const MEMBER: &str = "019a4000-0000-7000-8000-000000000003";
+const LATER_MEMBER: &str = "019a4000-0000-7000-8000-000000000008";
 struct Relay {
     endpoint: String,
     stop: Arc<AtomicBool>,
@@ -117,7 +118,12 @@ impl Relay {
                     (200, caps(mode))
                 } else if path == "/prefix/v1/members" {
                     let mut value = common_body();
-                    value["members"] = json!([{"member_id":MEMBER,"name":"receiver"}]);
+                    let name = if mode == "renamed" {
+                        "reviewer@B"
+                    } else {
+                        "receiver"
+                    };
+                    value["members"] = json!([{"member_id":MEMBER,"name":name}]);
                     (200, value)
                 } else if path.starts_with("/prefix/v1/messages?") {
                     let mut page = common_body();
@@ -128,17 +134,37 @@ impl Relay {
                             json!({"kind":"member_joined","mutation_id":"019a4000-0000-7000-8000-000000000004","member_id":MEMBER,"name":"receiver","occurred_at":"2026-11-05T00:00:00.000000Z"})
                         )]);
                         page["next_after"] = json!("1");
+                        if matches!(mode, "expanded" | "renamed") {
+                            let mutation = if mode == "renamed" {
+                                json!({"kind":"member_renamed","mutation_id":"019a4000-0000-7000-8000-000000000009",
+                                    "member_id":MEMBER,"from":"receiver","to":"reviewer@B","occurred_at":"2026-11-05T00:00:01.000000Z"})
+                            } else {
+                                json!({"kind":"member_joined","mutation_id":"019a4000-0000-7000-8000-000000000009",
+                                    "member_id":LATER_MEMBER,"name":"reviewer@B","occurred_at":"2026-11-05T00:00:01.000000Z"})
+                            };
+                            page["messages"].as_array_mut().unwrap().push(envelope(
+                                "00000000-0000-4000-8000-000000000003",
+                                "2",
+                                mutation,
+                            ));
+                            page["next_after"] = json!("2");
+                        }
                         page["has_more"] = json!(true);
                         (200, page)
                     } else if fail_request.load(Ordering::SeqCst) {
                         (503, json!({"error":"temporary"}))
                     } else {
+                        let seq = if matches!(mode, "expanded" | "renamed") {
+                            "3"
+                        } else {
+                            "2"
+                        };
                         page["messages"] = json!([envelope(
                             "00000000-0000-4000-8000-000000000002",
-                            "2",
+                            seq,
                             json!({"from_agent":"sender","to_agent":"receiver","body":"hello from relay","created_at":"2026-11-05T00:00:00.000000Z"})
                         )]);
-                        page["next_after"] = json!("2");
+                        page["next_after"] = json!(seq);
                         page["has_more"] = json!(false);
                         (200, page)
                     }
@@ -193,6 +219,46 @@ fn fixture() -> tempfile::TempDir {
 }
 fn config(root: &Path) -> Value {
     serde_json::from_slice(&fs::read(root.join("teams/dev/config.json")).unwrap()).unwrap()
+}
+
+#[test]
+fn import_accepts_members_added_after_team_creation() {
+    let t = fixture();
+    let root = t.path();
+    let relay = Relay::new("expanded");
+    let imported = cli(
+        root,
+        &["--server", &relay.endpoint, "team", "import", "dev"],
+    );
+    assert!(
+        imported.status.success(),
+        "{}",
+        String::from_utf8_lossy(&imported.stderr)
+    );
+    let cfg = config(root);
+    assert_eq!(cfg["agents"]["receiver"]["member_id"], MEMBER);
+    assert_eq!(cfg["agents"]["reviewer@B"]["member_id"], LATER_MEMBER);
+    assert!(cfg.get("import_pending").is_none());
+}
+
+#[test]
+fn import_preserves_identity_across_rename() {
+    let t = fixture();
+    let root = t.path();
+    let relay = Relay::new("renamed");
+    let imported = cli(
+        root,
+        &["--server", &relay.endpoint, "team", "import", "dev"],
+    );
+    assert!(
+        imported.status.success(),
+        "{}",
+        String::from_utf8_lossy(&imported.stderr)
+    );
+    let cfg = config(root);
+    assert!(cfg["agents"].get("receiver").is_none());
+    assert_eq!(cfg["agents"]["reviewer@B"]["member_id"], MEMBER);
+    assert!(cfg.get("import_pending").is_none());
 }
 
 #[test]

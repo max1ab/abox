@@ -5,6 +5,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use rusqlite::{Connection, params};
 use serde_json::{Value, json};
 use std::{
+    collections::HashSet,
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
@@ -216,6 +217,32 @@ impl Roster {
                 && r["mutation_id"] == *id
                 && r["server_instance_id"] == self.server
                 && r["remote_team_id"] == self.remote
+        })
+    }
+    pub(super) fn covers_initial_members(&self, members: &[Value]) -> bool {
+        let synced: HashSet<_> = self
+            .records
+            .iter()
+            .filter(|record| {
+                record["type"] == "roster_synced"
+                    && record["server_instance_id"] == self.server
+                    && record["remote_team_id"] == self.remote
+            })
+            .filter_map(|record| record["mutation_id"].as_str())
+            .collect();
+        let joined: HashSet<_> = self
+            .records
+            .iter()
+            .filter(|record| {
+                record["type"] == "member_joined"
+                    && record["id"].as_str().is_some_and(|id| synced.contains(id))
+            })
+            .filter_map(|record| record["member_id"].as_str())
+            .collect();
+        members.iter().all(|member| {
+            member["member_id"]
+                .as_str()
+                .is_some_and(|id| joined.contains(id))
         })
     }
     fn sync_record(&mut self, id: &Value, seq: &str, wire: &str) {
