@@ -107,6 +107,19 @@ fn leave_retires_only_the_selected_identity_and_keeps_mail() {
     bind(root, "dev", "reviewer", SECOND);
     fs::write(root.join("body"), "keep this message").unwrap();
     ok(send(root, Some("dev")));
+    let config: Value =
+        serde_json::from_slice(&fs::read(root.join("teams/dev/config.json")).unwrap()).unwrap();
+    let db = rusqlite::Connection::open(root.join("db/messages.db")).unwrap();
+    let (sender, recipient): (String, String) = db
+        .query_row(
+            "SELECT from_member_id,to_member_id FROM mail_addresses",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(config["agents"]["worker"]["member_id"], sender);
+    assert_eq!(config["agents"]["reviewer"]["member_id"], recipient);
+    drop(db);
     let leave = |args: &[&str], session| {
         command(root, args)
             .env("CODEX_THREAD_ID", session)

@@ -5,6 +5,33 @@ use rusqlite::{Connection, TransactionBehavior, params};
 use serde::Serialize;
 use serde_json::Value;
 
+pub(crate) fn ensure_addresses(db: &Connection) -> Result<(), String> {
+    db.execute_batch(
+        "CREATE TABLE IF NOT EXISTS mail_addresses (
+            event_seq INTEGER PRIMARY KEY,
+            from_member_id TEXT NOT NULL,
+            to_member_id TEXT NOT NULL
+        )",
+    )
+    .map_err(|e| format!("cannot initialize mail addresses: {e}"))
+}
+
+pub(crate) fn record_addresses(
+    db: &Connection,
+    event_seq: i64,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> Result<(), String> {
+    if let (Some(from), Some(to)) = (from, to) {
+        db.execute(
+            "INSERT INTO mail_addresses(event_seq,from_member_id,to_member_id) VALUES (?1,?2,?3)",
+            params![event_seq, from, to],
+        )
+        .map_err(|e| format!("cannot record mail addresses: {e}"))?;
+    }
+    Ok(())
+}
+
 #[derive(Serialize)]
 pub struct Message {
     #[serde(rename = "type")]

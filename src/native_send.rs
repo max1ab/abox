@@ -60,6 +60,7 @@ pub async fn send(
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|e| format!("cannot start send transaction: {e}"))?;
     crate::store::validate(&tx)?;
+    crate::mailbox::ensure_addresses(&tx)?;
     let id = uuid::Uuid::now_v7().to_string();
     let at: String = tx
         .query_row("SELECT strftime('%Y-%m-%dT%H:%M:%SZ','now')", [], |r| {
@@ -74,6 +75,12 @@ pub async fn send(
     let legacy_id = tx.last_insert_rowid();
     tx.execute("INSERT INTO events(type,id,team,from_agent,to_agent,body,at,legacy_id) VALUES ('message_sent',?1,?2,?3,?4,?5,?6,?7)", params![id,team,from,to,body,at,legacy_id])
         .map_err(|e| format!("cannot write message event (send rolled back): {e}"))?;
+    crate::mailbox::record_addresses(
+        &tx,
+        tx.last_insert_rowid(),
+        crate::presence::member_id(&store.config["agents"][from]),
+        crate::presence::member_id(&store.config["agents"][&to]),
+    )?;
     tx.commit()
         .map_err(|e| format!("cannot commit send: {e}"))?;
     drop(store);
