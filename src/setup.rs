@@ -111,7 +111,7 @@ pub fn registration_name(name: String, machine: Option<&str>) -> Result<String, 
 pub async fn import(agmsg: &Agmsg, team: &str, server: &str) -> Result<(), String> {
     crate::import::run(agmsg.root(), team, server, false).await?;
     println!(
-        "Imported team {team}. Run agent-mail start --team {team} --name NAME from the receiving session."
+        "Imported team {team}. Run abox start --team {team} --name NAME from the receiving session."
     );
     Ok(())
 }

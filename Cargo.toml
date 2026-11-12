@@ -1,5 +1,5 @@
 [package]
-name = "agent-mail"
+name = "abox"
 version = "0.1.0"
 edition = "2024"
 description = "Agent directory and bulletin board built alongside agmsg"

@@ -260,7 +260,7 @@ pub(crate) fn install(
     let updated = serde_json::to_vec_pretty(&config).map_err(|e| e.to_string())?;
     if before.as_deref() != Some(updated.as_slice()) {
         if let Some(bytes) = before {
-            let backup = path.with_extension(format!("agent-mail-backup-{}", uuid::Uuid::new_v4()));
+            let backup = path.with_extension(format!("abox-backup-{}", uuid::Uuid::new_v4()));
             registry::atomic(&backup, &bytes)?;
         }
         registry::atomic(&path, &updated)?;
@@ -384,7 +384,7 @@ pub(crate) fn run(root: &Path, kind: AgentType) -> Result<()> {
     if !bound.is_empty() {
         println!(
             "{}",
-            json!({"hookSpecificOutput":{"hookEventName":event,"additionalContext":format!("Agent Mail identities for this session: {}. On [agent-mail:nonce] notices, run agent-mail inbox to read mail and acknowledge the pending reminder.",bound.join(", "))}})
+            json!({"hookSpecificOutput":{"hookEventName":event,"additionalContext":format!("Abox identities for this session: {}. On [abox:nonce] or [agent-mail:nonce] notices, run abox inbox to read mail and acknowledge the pending reminder.",bound.join(", "))}})
         );
     }
     Ok(())

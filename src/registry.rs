@@ -158,7 +158,7 @@ pub(crate) fn leave(
     }
     save(&dir, &journal, &retired)?;
     if let Err(error) = fs::remove_file(&binding) {
-        eprintln!("agent-mail: membership removed; could not remove stale session record: {error}");
+        eprintln!("abox: membership removed; could not remove stale session record: {error}");
     }
     crate::sync::runtime::notify(root, team);
     Ok(())

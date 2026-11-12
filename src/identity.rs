@@ -102,7 +102,7 @@ pub fn resolve(root: &Path, team: Option<&str>, kind: AgentType, id: &str) -> Re
     candidates.retain(|v| team.is_none_or(|t| t == v.team));
     if candidates.len() != 1 {
         return Err(if candidates.is_empty() {
-            "no identity is bound to this session; run agent-mail start --team TEAM --name NAME"
+            "no identity is bound to this session; run abox start --team TEAM --name NAME"
         } else {
             "this session has multiple identities; specify --team (each team must have one identity per session)"
         }.into());

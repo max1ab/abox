@@ -182,8 +182,7 @@ pub(crate) async fn once(root: &Path) -> Result<Report> {
             )?;
             continue;
         }
-        let message =
-            format!("[agent-mail:{nonce}] New messages are waiting. Check your agent-mail inbox.");
+        let message = format!("[abox:{nonce}] New messages are waiting. Check your abox inbox.");
         // No mailbox/registry locks are held across the external notification.
         let result = deliver(&group.target, &message, &nonce, Duration::from_secs(10)).await;
         match &result {

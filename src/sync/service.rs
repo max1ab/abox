@@ -14,7 +14,7 @@ fn label(root: &Path, team: &str) -> Result<String> {
     );
     let hash = ring::digest::digest(&ring::digest::SHA256, text.as_bytes());
     Ok(format!(
-        "io.agent-mail.sync.{}",
+        "io.abox.sync.{}",
         hash.as_ref()[..12]
             .iter()
             .map(|b| format!("{b:02x}"))

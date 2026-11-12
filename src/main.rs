@@ -46,7 +46,7 @@ fn main() -> ExitCode {
         {
             Ok(log) => Some(log),
             Err(e) => {
-                eprintln!("agent-mail: {e}");
+                eprintln!("abox: {e}");
                 return ExitCode::FAILURE;
             }
         }
@@ -59,24 +59,35 @@ fn main() -> ExitCode {
     {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("agent-mail: {e}");
+            eprintln!("abox: {e}");
             return ExitCode::FAILURE;
         }
     };
     match runtime.block_on(run(cli, server_source)) {
         Ok(code) => code,
         Err(error) => {
-            eprintln!("agent-mail: {error}");
+            eprintln!("abox: {error}");
             ExitCode::FAILURE
         }
     }
 }
 
 async fn run(mut cli: Cli, server_source: Option<ValueSource>) -> Result<ExitCode, String> {
-    let server_configured = matches!(
-        server_source,
-        Some(ValueSource::CommandLine | ValueSource::EnvVariable)
-    );
+    let legacy_server = (server_source == Some(ValueSource::DefaultValue))
+        .then(|| {
+            std::env::var("AGENT_MAIL_SERVER")
+                .ok()
+                .filter(|value| !value.is_empty())
+        })
+        .flatten();
+    let server_configured = legacy_server.is_some()
+        || matches!(
+            server_source,
+            Some(ValueSource::CommandLine | ValueSource::EnvVariable)
+        );
+    if let Some(server) = legacy_server {
+        cli.server = server;
+    }
     if let Command::Debug { command } = cli.command {
         cli.command = match command {
             cli::DebugCommand::Hook { command } => Command::Hook { command },
@@ -105,8 +116,8 @@ async fn run(mut cli: Cli, server_source: Option<ValueSource>) -> Result<ExitCod
             let local = agmsg::Agmsg::for_setup(cli.agmsg_dir)?;
             let directory = skill_dir.unwrap_or_else(|| {
                 std::path::PathBuf::from(match kind {
-                    cli::AgentType::Codex => ".agents/skills/agent-mail",
-                    cli::AgentType::ClaudeCode => ".claude/skills/agent-mail",
+                    cli::AgentType::Codex => ".agents/skills/abox",
+                    cli::AgentType::ClaudeCode => ".claude/skills/abox",
                 })
             });
             // Refuse a different skill before changing agent hook configuration.
@@ -486,10 +497,9 @@ async fn run(mut cli: Cli, server_source: Option<ValueSource>) -> Result<ExitCod
         Command::Agmsg { command } => {
             let client = agmsg::Agmsg::new(cli.agmsg_dir)?;
             match command {
-                AgmsgCommand::Version => println!(
-                    "agent-mail {} (mailbox format 1)",
-                    env!("CARGO_PKG_VERSION")
-                ),
+                AgmsgCommand::Version => {
+                    println!("abox {} (mailbox format 1)", env!("CARGO_PKG_VERSION"))
+                }
                 AgmsgCommand::Teams => client::print_jsonl(mailbox::teams(client.root())?)?,
                 AgmsgCommand::Members { team } => client::print_jsonl(client.members(&team)?)?,
                 AgmsgCommand::Messages { team, agent, limit } => client::print_jsonl(

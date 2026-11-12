@@ -9,7 +9,7 @@ use std::{
 mod common;
 
 fn cli(root: &Path, args: &[&str]) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_agent-mail"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_abox"));
     common::clean_environment(&mut command);
     command
         .env("AGENT_MAIL_BASH", root.join("bash-must-not-run"))
@@ -120,7 +120,7 @@ fn concurrent_joins_do_not_lose_members_and_conflicting_names_fail() {
     let root = temp.path();
     let children: Vec<_> = (0..6)
         .map(|n| {
-            let mut c = Command::new(env!("CARGO_BIN_EXE_agent-mail"));
+            let mut c = Command::new(env!("CARGO_BIN_EXE_abox"));
             common::clean_environment(&mut c);
             c.env("AGENT_MAIL_BASH", root.join("absent"))
                 .arg("--agmsg-dir")
@@ -215,7 +215,7 @@ fn malformed_roster_is_reported_without_erasing_registrations() {
 fn first_local_registration_creates_its_data_root_without_an_upstream_installation() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("new-client");
-    let mut command = Command::new(env!("CARGO_BIN_EXE_agent-mail"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_abox"));
     common::clean_environment(&mut command);
     let output = command
         .env("AGENT_MAIL_BASH", root.join("absent-bash"))

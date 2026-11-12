@@ -11,11 +11,11 @@ use std::{
 #[allow(dead_code)]
 mod common;
 fn cli(root: &Path, args: &[&str]) -> std::process::Output {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_agent-mail"));
+    let mut c = Command::new(env!("CARGO_BIN_EXE_abox"));
     common::clean_environment(&mut c);
     c.env("NO_PROXY", "*")
         .env_remove("CLAUDE_CODE_SESSION_ID")
-        .env_remove("AGENT_MAIL_SERVER")
+        .env_remove("ABOX_SERVER")
         .env("CODEX_HOME", root.join("codex-profile"))
         .env("AGENT_MAIL_BASH", root.join("no-bash"))
         .arg("--data-dir")

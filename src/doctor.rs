@@ -36,7 +36,7 @@ pub async fn run(agmsg_dir: Option<PathBuf>, server: &str) -> Result<ExitCode, S
     // Neither failed component prevents checking the other one.
     let (agmsg, service) = tokio::join!(async { Agmsg::new(agmsg_dir)?.version() }, async {
         ApiClient::new(server)?.health().await?;
-        Ok("Agent Mail HTTP service and board/profile tables readable".to_owned())
+        Ok("Abox HTTP service and board/profile tables readable".to_owned())
     });
     let checks = [
         Check::from_result("mailbox", agmsg),

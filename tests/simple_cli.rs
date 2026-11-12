@@ -9,13 +9,13 @@ mod common;
 const FIRST: &str = "019a4000-0000-7000-8000-000000000001";
 const SECOND: &str = "019a4000-0000-7000-8000-000000000002";
 fn command(root: &Path, args: &[&str]) -> Command {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_agent-mail"));
+    let mut c = Command::new(env!("CARGO_BIN_EXE_abox"));
     common::clean_environment(&mut c);
     c.env_remove("CLAUDE_CODE_SESSION_ID")
-        .env_remove("AGENT_MAIL_SERVER")
+        .env_remove("ABOX_SERVER")
         .env("CODEX_HOME", root.join("profile"))
         .env("CLAUDE_CONFIG_DIR", root.join("claude-profile"))
-        .env("AGENT_MAIL_CODEX", root.join("absent-codex"))
+        .env("ABOX_CODEX", root.join("absent-codex"))
         .current_dir(root)
         .arg("--data-dir")
         .arg(root)
@@ -464,12 +464,8 @@ fn setup_is_repeatable_and_preserves_different_skills_before_changing_hooks() {
     let hooks = fs::read(r.join("hooks.json")).unwrap();
     ok(command(r, &args).output().unwrap());
     assert_eq!(hooks, fs::read(r.join("hooks.json")).unwrap());
-    let skill = r.join(".agents/skills/agent-mail/SKILL.md");
-    assert!(
-        fs::read_to_string(&skill)
-            .unwrap()
-            .contains("agent-mail start")
-    );
+    let skill = r.join(".agents/skills/abox/SKILL.md");
+    assert!(fs::read_to_string(&skill).unwrap().contains("abox start"));
     fs::write(&skill, "my own skill").unwrap();
     assert!(!command(r, &args).output().unwrap().status.success());
     assert_eq!(hooks, fs::read(r.join("hooks.json")).unwrap());

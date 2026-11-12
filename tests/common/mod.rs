@@ -38,8 +38,8 @@ fn copy_tree(source: &Path, destination: &Path) {
 
 // Copy only upstream code, so the source installation's data is never modified.
 pub fn fixture() -> TempDir {
-    let source = std::env::var_os("AGENT_MAIL_TEST_AGMSG_DIR")
-        .expect("set AGENT_MAIL_TEST_AGMSG_DIR to an agmsg checkout or installation root");
+    let source = std::env::var_os("ABOX_TEST_AGMSG_DIR")
+        .expect("set ABOX_TEST_AGMSG_DIR to an agmsg checkout or installation root");
     let temp = tempfile::Builder::new()
         .prefix("agent mail test ")
         .tempdir()

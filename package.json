@@ -1,5 +1,5 @@
 {
-  "name": "agent-mail-workspace",
+  "name": "abox-workspace",
   "private": true,
   "type": "module",
   "engines": {
@@ -12,9 +12,9 @@
   "scripts": {
     "check:upstream": "node relay-server/scripts/check-upstream.mjs",
     "build": "node relay-server/scripts/build.mjs",
-    "typecheck": "npm run build && npm run typecheck --workspace @agent-mail/relay-server && npm run typecheck --workspace @agmsg/reference-server",
-    "test": "npm run build && npm run test --workspace @agent-mail/relay-server && npm run test:upstream",
-    "start": "npm run start --workspace @agent-mail/relay-server",
+    "typecheck": "npm run build && npm run typecheck --workspace @abox/relay-server && npm run typecheck --workspace @agmsg/reference-server",
+    "test": "npm run build && npm run test --workspace @abox/relay-server && npm run test:upstream",
+    "start": "npm run start --workspace @abox/relay-server",
     "test:upstream": "node relay-server/scripts/test-upstream.mjs"
   }
 }

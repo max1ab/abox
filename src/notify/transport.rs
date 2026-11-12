@@ -140,7 +140,9 @@ pub(crate) async fn deliver(
     }
 }
 async fn codex(session: &str, profile: &Path, message: &str, timeout: Duration) -> Delivery {
-    let executable = std::env::var_os("AGENT_MAIL_CODEX").unwrap_or_else(|| "codex".into());
+    let executable = std::env::var_os("ABOX_CODEX")
+        .or_else(|| std::env::var_os("AGENT_MAIL_CODEX"))
+        .unwrap_or_else(|| "codex".into());
     codex_with(&executable, session, profile, message, timeout).await
 }
 async fn codex_with(

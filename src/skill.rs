@@ -2,7 +2,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-const CONTENT: &str = include_str!("../skills/agent-mail/SKILL.md");
+const CONTENT: &str = include_str!("../skills/abox/SKILL.md");
 
 pub fn export(directory: &Path) -> Result<PathBuf, String> {
     fs::create_dir_all(directory)

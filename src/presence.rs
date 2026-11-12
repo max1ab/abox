@@ -120,7 +120,7 @@ pub(crate) async fn list(root: &Path, team: Option<String>, all: bool) -> Result
         match result {
             Ok(members) => *reachable = members,
             Err(error) => {
-                eprintln!("agent-mail: could not check remote members in team '{team}': {error}")
+                eprintln!("abox: could not check remote members in team '{team}': {error}")
             }
         }
     }

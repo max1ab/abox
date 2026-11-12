@@ -144,6 +144,7 @@ const ENVIRONMENT: &[&str] = &[
     "AGMSG_STORAGE_PATH",
     "AGMSG_STORAGE_DRIVER",
     "AGMSG_BUSY_TIMEOUT",
+    "ABOX_CODEX",
     "AGENT_MAIL_CODEX",
     "PATH",
 ];
@@ -170,11 +171,14 @@ pub(crate) async fn start(root: &Path, no_login: bool) -> Result<Value> {
         if let Ok(mut value) = std::env::var(name) {
             if matches!(
                 *name,
-                "AGMSG_CONFIG" | "AGMSG_STORAGE_PATH" | "AGENT_MAIL_CODEX"
+                "AGMSG_CONFIG" | "AGMSG_STORAGE_PATH" | "ABOX_CODEX" | "AGENT_MAIL_CODEX"
             ) && !value.is_empty()
             {
                 let p = crate::store::native_path(Path::new(&value));
-                if !p.is_absolute() && (*name != "AGENT_MAIL_CODEX" || p.components().count() > 1) {
+                if !p.is_absolute()
+                    && (!matches!(*name, "ABOX_CODEX" | "AGENT_MAIL_CODEX")
+                        || p.components().count() > 1)
+                {
                     value = std::env::current_dir()
                         .map_err(|e| e.to_string())?
                         .join(p)

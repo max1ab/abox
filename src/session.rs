@@ -88,7 +88,8 @@ pub fn bind(
     }
     if !registry::registered(&config, name, kind, &project) {
         return Err(
-            "identity is not registered for this project and Agent type; run agent-mail start first".into(),
+            "identity is not registered for this project and Agent type; run abox start first"
+                .into(),
         );
     }
     let run = root.join("run");

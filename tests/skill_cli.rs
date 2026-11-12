@@ -3,7 +3,7 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 fn export(directory: &Path) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_agent-mail"))
+    Command::new(env!("CARGO_BIN_EXE_abox"))
         // Export must work without a running service or an agmsg installation.
         .args(["--server", "invalid-url", "--agmsg-dir", "/missing-agmsg"])
         .args(["skill", "export"])
@@ -15,7 +15,7 @@ fn export(directory: &Path) -> Output {
 #[test]
 fn exports_bundled_skill_into_a_new_directory_without_runtime_dependencies() {
     let temp = tempfile::tempdir().unwrap();
-    let destination = temp.path().join("skills with spaces/agent-mail");
+    let destination = temp.path().join("skills with spaces/abox");
     let output = export(&destination);
     assert!(
         output.status.success(),
@@ -25,7 +25,7 @@ fn exports_bundled_skill_into_a_new_directory_without_runtime_dependencies() {
     assert!(output.stdout.is_empty());
     assert_eq!(
         fs::read_to_string(destination.join("SKILL.md")).unwrap(),
-        include_str!("../skills/agent-mail/SKILL.md")
+        include_str!("../skills/abox/SKILL.md")
     );
 }
 

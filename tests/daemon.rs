@@ -8,9 +8,9 @@ use std::{
 #[allow(dead_code)]
 mod common;
 fn cli(root: &Path, args: &[&str]) -> Output {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_agent-mail"));
+    let mut c = Command::new(env!("CARGO_BIN_EXE_abox"));
     common::clean_environment(&mut c);
-    c.env("AGENT_MAIL_CODEX", root.join("fake-codex"))
+    c.env("ABOX_CODEX", root.join("fake-codex"))
         .env("CODEX_HOME", root)
         .current_dir(root)
         .arg("--agmsg-dir")
@@ -174,10 +174,10 @@ fn a_killed_daemon_restarts_without_resubmitting_an_accepted_reminder() {
             "019a4000-0000-7000-8000-000000000001",
         ],
     ));
-    let mut c = Command::new(env!("CARGO_BIN_EXE_agent-mail"));
+    let mut c = Command::new(env!("CARGO_BIN_EXE_abox"));
     common::clean_environment(&mut c);
     let mut child = Child(
-        c.env("AGENT_MAIL_CODEX", r.join("fake-codex"))
+        c.env("ABOX_CODEX", r.join("fake-codex"))
             .env("CODEX_HOME", r)
             .arg("--data-dir")
             .arg(r)

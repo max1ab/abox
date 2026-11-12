@@ -8,7 +8,7 @@ mod common;
 const FIRST: &str = "019a4000-0000-7000-8000-000000000001";
 const SECOND: &str = "019a4000-0000-7000-8000-000000000002";
 fn command(root: &Path, args: &[&str]) -> Command {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_agent-mail"));
+    let mut c = Command::new(env!("CARGO_BIN_EXE_abox"));
     common::clean_environment(&mut c);
     for key in [
         "CLAUDE_CODE_SESSION_ID",

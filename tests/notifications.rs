@@ -9,9 +9,9 @@ use std::{
 mod common;
 const SESSION: &str = "019a4000-0000-7000-8000-000000000001";
 fn cli(root: &Path, args: &[&str]) -> Output {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_agent-mail"));
+    let mut c = Command::new(env!("CARGO_BIN_EXE_abox"));
     common::clean_environment(&mut c);
-    c.env("AGENT_MAIL_CODEX", root.join("fake-codex"))
+    c.env("ABOX_CODEX", root.join("fake-codex"))
         .env("CODEX_HOME", root)
         .env_remove("CLAUDE_CODE_SESSION_ID")
         .arg("--agmsg-dir")
@@ -142,7 +142,7 @@ fn ambiguous_send_result_is_persistent_and_never_automatically_retried() {
 }
 
 fn session_inbox(root: &Path) -> Output {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_agent-mail"));
+    let mut c = Command::new(env!("CARGO_BIN_EXE_abox"));
     common::clean_environment(&mut c);
     c.env("CODEX_HOME", root)
         .env("CODEX_THREAD_ID", SESSION)
@@ -164,7 +164,7 @@ fn short_notice_and_plain_inbox_acknowledge_the_session_without_extra_arguments(
     let nonce = state(r)[0]["nonce"].as_str().unwrap().to_owned();
     assert_eq!(
         fs::read_to_string(r.join("notice")).unwrap(),
-        format!("[agent-mail:{nonce}] New messages are waiting. Check your agent-mail inbox.")
+        format!("[abox:{nonce}] New messages are waiting. Check your abox inbox.")
     );
     let read = ok(session_inbox(r));
     assert!(read.contains("dev/receiver:"));

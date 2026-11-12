@@ -8,20 +8,20 @@ use clap::{Parser, Subcommand, ValueEnum};
     about = "Private agent mail, team members and a silent shared board"
 )]
 pub struct Cli {
-    /// Data root; reuses a marked agent-mail/agmsg skill data directory, otherwise ~/.agent-mail.
+    /// Data root; reuses a marked abox/agmsg skill data directory, otherwise ~/.abox.
     #[arg(
         long = "data-dir",
         value_name = "PATH",
         alias = "agmsg-dir",
         global = true,
-        env = "AGENT_MAIL_DATA_DIR"
+        env = "ABOX_DATA_DIR"
     )]
     pub agmsg_dir: Option<PathBuf>,
     /// Relay server for remote team setup, the shared board and profiles.
     #[arg(
         long,
         global = true,
-        env = "AGENT_MAIL_SERVER",
+        env = "ABOX_SERVER",
         default_value = "http://127.0.0.1:8787"
     )]
     pub server: String,
@@ -44,7 +44,7 @@ pub enum Command {
         /// Save the team used by start when no --team is provided.
         #[arg(long)]
         default_team: Option<String>,
-        /// Save a machine label for new Agent Mail addresses.
+        /// Save a machine label for new Abox addresses.
         #[arg(long)]
         machine: Option<String>,
     },
@@ -193,7 +193,7 @@ pub enum Command {
     /// Check local mailbox format and the shared service; does not verify sync or session wake.
     #[command(hide = true)]
     Doctor,
-    /// Export the bundled Agent Mail skill; does not install or configure agmsg.
+    /// Export the bundled Abox skill; does not install or configure agmsg.
     #[command(hide = true)]
     Skill {
         #[command(subcommand)]

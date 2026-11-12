@@ -124,7 +124,7 @@ pub(super) fn spawn_detached(root: &Path) -> Result<()> {
         ) == 0
         {
             return Err(format!(
-                "cannot start detached Agent Mail daemon: {}",
+                "cannot start detached Abox daemon: {}",
                 std::io::Error::last_os_error()
             ));
         }
@@ -218,7 +218,7 @@ pub fn install(root: &Path) -> Result<()> {
             )
         };
         let text = format!(
-            "[Unit]\nDescription=Agent Mail background service\n[Service]\nExecStart={} --data-dir {} service launch\nRestart=on-failure\nRestartSec=5\n[Install]\nWantedBy=default.target\n",
+            "[Unit]\nDescription=Abox background service\n[Service]\nExecStart={} --data-dir {} service launch\nRestart=on-failure\nRestartSec=5\n[Install]\nWantedBy=default.target\n",
             quote(exe),
             quote(root_text)
         );

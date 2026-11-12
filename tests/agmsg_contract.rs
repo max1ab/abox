@@ -8,7 +8,7 @@ mod common;
 use common::{clean_environment, fixture};
 
 fn cli(root: &Path) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_agent-mail"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_abox"));
     clean_environment(&mut command);
     command.arg("--agmsg-dir").arg(root).arg("agmsg");
     command
@@ -58,12 +58,12 @@ fn send_requires_exactly_one_body_source() {
 }
 
 #[test]
-#[ignore = "requires Bash, sqlite3 and AGENT_MAIL_TEST_AGMSG_DIR; uses isolated upstream scripts"]
+#[ignore = "requires Bash, sqlite3 and ABOX_TEST_AGMSG_DIR; uses isolated upstream scripts"]
 fn setup_registers_and_verifies_codex_and_claude_sessions() {
     let temp = fixture();
     let root = temp.path();
     let invoke = |args: &[&str]| {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_agent-mail"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_abox"));
         clean_environment(&mut command);
         command
             .arg("--agmsg-dir")
@@ -143,7 +143,7 @@ printf '%s' "$AGMSG_ROLE_SESSION_UUID"
 }
 
 #[test]
-#[ignore = "requires Bash, sqlite3 and AGENT_MAIL_TEST_AGMSG_DIR; uses real upstream scripts"]
+#[ignore = "requires Bash, sqlite3 and ABOX_TEST_AGMSG_DIR; uses real upstream scripts"]
 fn file_message_survives_history_and_is_read_only_once() {
     let temp = fixture();
     let root = temp.path();
@@ -210,7 +210,7 @@ fn file_message_survives_history_and_is_read_only_once() {
 }
 
 #[test]
-#[ignore = "requires Bash, sqlite3 and AGENT_MAIL_TEST_AGMSG_DIR; uses real upstream scripts"]
+#[ignore = "requires Bash, sqlite3 and ABOX_TEST_AGMSG_DIR; uses real upstream scripts"]
 fn piped_message_preserves_content_and_rejects_empty_body() {
     let temp = fixture();
     let root = temp.path();
@@ -242,7 +242,7 @@ fn piped_message_preserves_content_and_rejects_empty_body() {
 }
 
 #[test]
-#[ignore = "requires Bash, sqlite3 and AGENT_MAIL_TEST_AGMSG_DIR; uses real upstream scripts"]
+#[ignore = "requires Bash, sqlite3 and ABOX_TEST_AGMSG_DIR; uses real upstream scripts"]
 fn unregistered_recipient_preserves_upstream_exit_and_stderr() {
     let temp = fixture();
     let root = temp.path();
@@ -283,7 +283,7 @@ fn native_send(root: &Path, file: &Path) -> Command {
 }
 
 #[test]
-#[ignore = "requires Bash, sqlite3 and AGENT_MAIL_TEST_AGMSG_DIR for isolated official fixture setup/readback"]
+#[ignore = "requires Bash, sqlite3 and ABOX_TEST_AGMSG_DIR for isolated official fixture setup/readback"]
 fn native_send_uses_no_shell_and_rolls_back_both_rows_on_failure() {
     let temp = fixture();
     let root = temp.path();
@@ -319,7 +319,7 @@ fn native_send_uses_no_shell_and_rolls_back_both_rows_on_failure() {
 }
 
 #[test]
-#[ignore = "requires Bash, sqlite3 and AGENT_MAIL_TEST_AGMSG_DIR for isolated official fixture setup/readback"]
+#[ignore = "requires Bash, sqlite3 and ABOX_TEST_AGMSG_DIR for isolated official fixture setup/readback"]
 fn native_send_resolves_per_team_store_and_serializes_writers() {
     let temp = fixture();
     let root = temp.path();
@@ -364,7 +364,7 @@ fn native_send_resolves_per_team_store_and_serializes_writers() {
 }
 
 #[test]
-#[ignore = "requires Bash, sqlite3 and AGENT_MAIL_TEST_AGMSG_DIR for isolated official fixture setup/readback"]
+#[ignore = "requires Bash, sqlite3 and ABOX_TEST_AGMSG_DIR for isolated official fixture setup/readback"]
 fn native_send_refuses_unknown_storage_versions_and_path_traversal() {
     let temp = fixture();
     let root = temp.path();
@@ -400,7 +400,7 @@ fn native_send_refuses_unknown_storage_versions_and_path_traversal() {
 }
 
 #[test]
-#[ignore = "requires Bash, sqlite3, jq, Node and AGENT_MAIL_TEST_AGMSG_DIR; tests official sync without networking"]
+#[ignore = "requires Bash, sqlite3, jq, Node and ABOX_TEST_AGMSG_DIR; tests official sync without networking"]
 fn official_sync_prepares_native_message_once_and_preserves_body() {
     let temp = fixture();
     let root = temp.path();
@@ -447,7 +447,7 @@ printf '%s\n' '{"type":"sync_prepare","envelope_v":1,"cipher":"none","key_id":nu
 }
 
 #[test]
-#[ignore = "requires Bash, sqlite3 and AGENT_MAIL_TEST_AGMSG_DIR; uses isolated official scripts"]
+#[ignore = "requires Bash, sqlite3 and ABOX_TEST_AGMSG_DIR; uses isolated official scripts"]
 fn native_and_official_inboxes_share_the_same_read_state() {
     let temp = fixture();
     let root = temp.path();

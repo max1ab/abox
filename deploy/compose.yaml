@@ -15,7 +15,7 @@ services:
     volumes:
       - private-mail-data:/var/lib/postgresql/data
   private-mail:
-    image: agent-mail-relay:local
+    image: abox-relay:local
     build:
       context: ..
       dockerfile: deploy/relay.Dockerfile

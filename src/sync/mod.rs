@@ -260,7 +260,7 @@ impl Context {
             .exists()
             && !allow_official
         {
-            return Err("the official remote sync engine is selected; use agent-mail sync enable TEAM to stop it and adopt native sync".into());
+            return Err("the official remote sync engine is selected; use abox sync enable TEAM to stop it and adopt native sync".into());
         }
         let config = &store.config;
         let history_boundary = HistoryBoundary::load(&config["remote_binding"])?;

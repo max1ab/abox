@@ -205,10 +205,10 @@ impl Drop for Relay {
     }
 }
 fn cli(root: &Path, args: &[&str]) -> Output {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_agent-mail"));
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_abox"));
     common::clean_environment(&mut cmd);
     cmd.env("AGENT_MAIL_BASH", root.join("bash-must-not-run"))
-        .env_remove("AGENT_MAIL_SERVER")
+        .env_remove("ABOX_SERVER")
         .env_remove("CLAUDE_CODE_SESSION_ID")
         .env("CODEX_HOME", root.join("codex-profile"))
         .env("NO_PROXY", "*")

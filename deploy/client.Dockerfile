@@ -15,10 +15,10 @@ ENV CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc
 RUN cargo build --release --locked --target x86_64-pc-windows-gnu
 
 FROM scratch AS windows-artifact
-COPY --from=windows-build /build/target/x86_64-pc-windows-gnu/release/agent-mail.exe /agent-mail.exe
+COPY --from=windows-build /build/target/x86_64-pc-windows-gnu/release/abox.exe /abox.exe
 
 FROM scratch AS linux-artifact
-COPY --from=build /build/target/release/agent-mail /agent-mail
+COPY --from=build /build/target/release/abox /abox
 
 # Portable Linux binary: toolchain layers remain cached when application sources change.
 FROM rust:1.98-bookworm AS linux-static-build
@@ -32,4 +32,4 @@ ENV CC_x86_64_unknown_linux_musl=musl-gcc
 RUN cargo build --release --locked --target x86_64-unknown-linux-musl
 
 FROM scratch AS linux-static-artifact
-COPY --from=linux-static-build /build/target/x86_64-unknown-linux-musl/release/agent-mail /agent-mail
+COPY --from=linux-static-build /build/target/x86_64-unknown-linux-musl/release/abox /abox

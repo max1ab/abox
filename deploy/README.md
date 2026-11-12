@@ -1,7 +1,7 @@
 # 部署与构建
 
 服务器用 Docker 运行 Node + PostgreSQL；客户端是单个 Rust 程序，内置 SQLite、同步与会话通知。
-`compose.yaml` 沿用原部署的项目名 `agent-mail`、服务名 `private-mail` 和卷名 `private-mail-data`。
+`compose.yaml` 沿用原部署的 Compose 项目名 `agent-mail`、服务名 `private-mail` 和卷名 `private-mail-data`。
 本轮在临时目录验证原生接入、聚合收件、单后台启停和离线团队隔离。真实会话唤醒、Windows 原生管道和各系统登录恢复仍待目标环境验收。
 
 ## 首次部署
@@ -26,7 +26,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
 更新后检查健康接口、私信收发、留言板和通讯录。数据库表结构由服务启动时初始化。
 先更新中转，再更新收件端客户端并重启后台，最后用新版客户端发信。旧后台仍可同步邮件，但不会回应可达性探测。混合版本期间，新版发件端会隐藏旧后台上的成员，并拒绝向它们发信。
 
-客户端运行 `agent-mail service start`，一个后台负责全部已连接团队及本地通知。`service stop` 停止后台并移除用户登录任务；`debug sync stop/start <team>` 单独暂停或恢复团队。首次替换旧安装须先停用 agmsgd 和旧钩子，避免双引擎。
+客户端运行 `abox service start`，一个后台负责全部已连接团队及本地通知。`service stop` 停止后台并移除用户登录任务；`debug sync stop/start <team>` 单独暂停或恢复团队。首次替换旧安装须先停用 agmsgd 和旧钩子，避免双引擎。
 
 ## 构建客户端
 

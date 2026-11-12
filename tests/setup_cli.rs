@@ -25,9 +25,9 @@ fn fixture() -> tempfile::TempDir {
 }
 
 fn run(root: &Path, arguments: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_agent-mail"))
+    Command::new(env!("CARGO_BIN_EXE_abox"))
         .env("AGENT_MAIL_BASH", root.join("bash-must-not-run"))
-        .env_remove("AGENT_MAIL_SERVER")
+        .env_remove("ABOX_SERVER")
         .env_remove("CODEX_THREAD_ID")
         .env_remove("CLAUDE_CODE_SESSION_ID")
         .current_dir(root)
