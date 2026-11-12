@@ -232,3 +232,46 @@ fn first_local_registration_creates_its_data_root_without_an_upstream_installati
     assert!(root.join("db/messages.db").exists());
     assert!(!root.join("scripts").exists());
 }
+
+#[test]
+fn delete_journal_supports_parallel_sends_and_existing_wal_stores_still_open() {
+    let temp = fixture();
+    let root = temp.path();
+    let path = root.join("db/messages.db");
+    let db = rusqlite::Connection::open(&path).unwrap();
+    let mode = || {
+        db.query_row("PRAGMA journal_mode", [], |row| row.get::<_, String>(0))
+            .unwrap()
+    };
+    assert_eq!(mode(), "delete");
+    fs::write(root.join("body.txt"), "parallel mail").unwrap();
+    std::thread::scope(|scope| {
+        for _ in 0..8 {
+            scope.spawn(|| {
+                ok(cli(
+                    root,
+                    &[
+                        "agmsg",
+                        "send",
+                        "dev",
+                        "--from",
+                        "sender",
+                        "--to",
+                        "receiver",
+                        "--body-file",
+                        "body.txt",
+                    ],
+                ));
+            });
+        }
+    });
+    let count: i64 = db
+        .query_row("SELECT count(*) FROM messages", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 8);
+
+    db.pragma_update(None, "journal_mode", "wal").unwrap();
+    let inbox = ok(cli(root, &["agmsg", "inbox", "dev", "receiver"]));
+    assert!(inbox.contains("8 new message(s)"));
+    assert_eq!(mode(), "wal");
+}

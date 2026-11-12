@@ -307,8 +307,11 @@ pub(crate) fn validate(db: &Connection) -> Result<(), String> {
         .map_err(|e| {
             format!("agmsg store must be initialized by official inbox/storage_init first: {e}")
         })?;
-    if revision != 1 || mode != "wal" || cursor_schema.as_deref() != Some("1") {
-        return Err("unsupported/uninitialized agmsg store; expected schema revision 1, WAL and read_cursor_v1=1".into());
+    if revision != 1
+        || !matches!(mode.as_str(), "delete" | "wal")
+        || cursor_schema.as_deref() != Some("1")
+    {
+        return Err("unsupported/uninitialized agmsg store; expected schema revision 1, DELETE or WAL journal mode, and read_cursor_v1=1".into());
     }
 
     Ok(())
@@ -400,7 +403,7 @@ fn initialize_mode(root: &Path, team: &str, config: &Value, importing: bool) -> 
 fn initialize_schema(db: &Connection) -> Result<(), String> {
     db.busy_timeout(Duration::from_secs(5))
         .map_err(|e| e.to_string())?;
-    db.pragma_update(None, "journal_mode", "wal")
+    db.pragma_update(None, "journal_mode", "delete")
         .map_err(|e| e.to_string())?;
     db.execute_batch(include_str!("mail-schema.sql"))
         .map_err(|e| e.to_string())

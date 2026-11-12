@@ -44,8 +44,7 @@ impl State {
         let db = Connection::open(path).map_err(|e| e.to_string())?;
         db.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(|e| e.to_string())?;
-        db.pragma_update(None, "journal_mode", "wal")
-            .map_err(|e| e.to_string())?;
+        // SQLite defaults to DELETE for new files and retains WAL on existing ones.
         db.execute_batch("CREATE TABLE IF NOT EXISTS notification_attempts(nonce TEXT PRIMARY KEY,target TEXT NOT NULL,state TEXT NOT NULL,reason TEXT,receipt TEXT,updated_ms INTEGER NOT NULL,retry_ms INTEGER NOT NULL DEFAULT 0);
         CREATE UNIQUE INDEX IF NOT EXISTS notification_active ON notification_attempts(target) WHERE state IN ('sending','accepted','unknown','failed');").map_err(|e|e.to_string())?;
         Ok(Self { db })
