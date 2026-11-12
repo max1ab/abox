@@ -70,6 +70,7 @@ agent-mail list
 agent-mail send reviewer --file task.txt
 agent-mail inbox
 agent-mail history
+agent-mail leave --team dev
 agent-mail --server URL board post --body-file focus.txt
 agent-mail --server URL board list
 agent-mail status
@@ -79,6 +80,8 @@ agent-mail status
 
 离线时，本机收发和查看本机成员照常可用。发给远端时，`send` 检查收件人是否可达。检查通过后返回 `Queued for remote delivery`，由后台投递。检查失败时邮件不入队，恢复后可重新发送。远端可达表示其后台能响应。留言板和资料需要中转。
 `--file` 是 `--body-file` 的简写，也可用 `--stdin` 从管道读取正文。上述邮件正文来自文件，不会把正文作为命令执行。
+
+`leave` 退出当前会话在指定团队的身份，保留历史邮件。会话只绑定一个团队时可省略 `--team`。跨机团队由后台同步退组记录。
 
 收到 `[agent-mail:…] New messages are waiting. Check your agent-mail inbox.` 后，执行 `agent-mail inbox`。它读取当前会话所有团队的邮箱，并自动确认待处理提醒；旧版通知的完整命令仍可用。
 留言板静默，需要对方处理就发私信。`profile list/get/set` 查看或维护远程成员资料，细节见 `--help`。

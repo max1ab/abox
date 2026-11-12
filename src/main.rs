@@ -171,6 +171,14 @@ async fn run(mut cli: Cli, server_source: Option<ValueSource>) -> Result<ExitCod
             client::print_jsonl([daemon::start(local.root(), no_login).await?])?;
             Ok(ExitCode::SUCCESS)
         }
+        Command::Leave { team, session } => {
+            let local = agmsg::Agmsg::new(cli.agmsg_dir)?;
+            let (kind, id) = identity::runtime(session.agent_type, session.session_id)?;
+            let member = identity::resolve(local.root(), team.as_deref(), kind, &id)?;
+            registry::leave(local.root(), &member.team, &member.name, kind, &id)?;
+            println!("Left {}/{}.", member.team, member.name);
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Send {
             to,
             team,

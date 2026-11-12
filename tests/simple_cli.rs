@@ -66,7 +66,7 @@ fn public_help_has_one_clear_entry_for_each_operation() {
     let t = tempfile::tempdir().unwrap();
     let help = ok(command(t.path(), &["--help"]).output().unwrap());
     for name in [
-        "setup", "start", "send", "inbox", "list", "history", "status", "service", "debug",
+        "setup", "start", "leave", "send", "inbox", "list", "history", "status", "service", "debug",
     ] {
         assert!(
             help.lines()
@@ -98,6 +98,46 @@ fn public_help_has_one_clear_entry_for_each_operation() {
         .output()
         .unwrap());
 }
+#[test]
+fn leave_retires_only_the_selected_identity_and_keeps_mail() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    bind(root, "dev", "worker", FIRST);
+    bind(root, "other", "worker", FIRST);
+    bind(root, "dev", "reviewer", SECOND);
+    fs::write(root.join("body"), "keep this message").unwrap();
+    ok(send(root, Some("dev")));
+    let leave = |args: &[&str], session| {
+        command(root, args)
+            .env("CODEX_THREAD_ID", session)
+            .output()
+            .unwrap()
+    };
+    assert!(!leave(&["leave"], FIRST).status.success());
+    assert!(
+        !leave(&["leave", "--team", "other"], SECOND)
+            .status
+            .success()
+    );
+    assert!(ok(leave(&["leave", "--team", "dev"], FIRST)).contains("dev/worker"));
+    assert!(!root.join("run/role-session.dev__worker").exists());
+    assert!(root.join("run/role-session.other__worker").exists());
+    assert!(
+        !ok(command(root, &["list", "--team", "dev", "--all"])
+            .output()
+            .unwrap())
+        .contains("worker")
+    );
+    assert!(
+        ok(command(root, &["history", "--team", "dev"])
+            .output()
+            .unwrap())
+        .contains("keep this message")
+    );
+    let journal = fs::read_to_string(root.join("teams/dev/roster.jsonl")).unwrap();
+    assert!(journal.contains("\"type\":\"member_left\""));
+}
+
 #[test]
 fn send_resolves_the_session_and_refuses_ambiguous_or_foreign_bindings() {
     let t = tempfile::tempdir().unwrap();

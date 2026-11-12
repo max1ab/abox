@@ -109,6 +109,61 @@ pub fn registered(cfg: &Value, name: &str, kind: AgentType, path: &Path) -> bool
         .map_or_else(|| matches(member), |rs| rs.iter().any(matches))
 }
 
+pub(crate) fn leave(
+    root: &Path,
+    team: &str,
+    name: &str,
+    kind: AgentType,
+    session: &str,
+) -> Result<()> {
+    let dir = root.join("teams").join(team);
+    let _team = TeamLock::acquire(&dir)?;
+    let cfg = config(root, team)?;
+    if cfg["import_pending"] == true || cfg["attachment_pending"] == true {
+        return Err("finish team import or attachment before leaving".into());
+    }
+    let run = root.join("run");
+    let _run = TeamLock::acquire(&run)?;
+    let binding = run.join(format!(
+        "role-session.{}__{}",
+        crate::session::encode(team),
+        crate::session::encode(name)
+    ));
+    let record = crate::session::read(&binding)?;
+    for (field, value) in [
+        ("team", team),
+        ("agent", name),
+        ("type", kind.as_str()),
+        ("session", session),
+    ] {
+        if record.get(field).map(String::as_str) != Some(value) {
+            return Err("session binding changed; cannot leave this team".into());
+        }
+    }
+    let member =
+        crate::presence::member_id(&cfg["agents"][name]).ok_or("active member has no stable ID")?;
+    let mut journal = records(&dir, &cfg)?;
+    let current = project(&journal, &cfg)?;
+    if current["agents"][name]["member_id"] == member {
+        journal.push(
+            json!({"type":"member_left","id":uuid::Uuid::now_v7().to_string(),
+            "member_id":member,"name":name,"at":now()?}),
+        );
+    } else if current["retired_members"][name]["member_id"] != member {
+        return Err("team identity changed; cannot leave this team".into());
+    }
+    let retired = project(&journal, &cfg)?;
+    if retired["retired_members"][name]["member_id"] != member {
+        return Err("member departure could not be applied".into());
+    }
+    save(&dir, &journal, &retired)?;
+    if let Err(error) = fs::remove_file(&binding) {
+        eprintln!("agent-mail: membership removed; could not remove stale session record: {error}");
+    }
+    crate::sync::runtime::notify(root, team);
+    Ok(())
+}
+
 pub fn join(
     root: &Path,
     team: &str,

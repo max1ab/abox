@@ -71,6 +71,13 @@ pub enum Command {
         #[arg(long)]
         no_login: bool,
     },
+    /// Leave a team as the current session's identity and keep its mail history.
+    Leave {
+        #[arg(long)]
+        team: Option<String>,
+        #[command(flatten)]
+        session: SessionArgs,
+    },
     /// Send as the identity bound to this session. Ambiguous bindings require --team.
     Send {
         to: String,

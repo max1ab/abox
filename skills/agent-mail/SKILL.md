@@ -56,6 +56,7 @@ printf '%s\n' 'Please review PR #42.' | agent-mail send reviewer --stdin
 agent-mail send reviewer --file /path/to/task.txt
 agent-mail inbox
 agent-mail history --limit 20
+agent-mail leave --team dev
 agent-mail history --team dev --agent reviewer --limit 5
 ```
 
