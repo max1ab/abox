@@ -152,6 +152,67 @@ fn leave_retires_only_the_selected_identity_and_keeps_mail() {
 }
 
 #[test]
+fn a_reused_local_name_starts_with_an_empty_mailbox() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    bind(root, "dev", "worker", FIRST);
+    bind(root, "dev", "reviewer", SECOND);
+    let member_id = || {
+        let config: Value =
+            serde_json::from_slice(&fs::read(root.join("teams/dev/config.json")).unwrap()).unwrap();
+        config["agents"]["reviewer"]["member_id"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let old_id = member_id();
+    fs::write(root.join("body"), "old mail").unwrap();
+    ok(send(root, Some("dev")));
+    let db = rusqlite::Connection::open(root.join("db/messages.db")).unwrap();
+    db.execute("DELETE FROM mail_addresses", []).unwrap();
+    drop(db);
+    ok(command(root, &["leave", "--team", "dev"])
+        .env("CODEX_THREAD_ID", SECOND)
+        .output()
+        .unwrap());
+    const THIRD: &str = "019a4000-0000-7000-8000-000000000003";
+    bind(root, "dev", "reviewer", THIRD);
+    assert_ne!(member_id(), old_id);
+    let inbox = || {
+        ok(command(root, &["inbox"])
+            .env("CODEX_THREAD_ID", THIRD)
+            .output()
+            .unwrap())
+    };
+    assert!(inbox().contains("No new messages."));
+    fs::write(root.join("body"), "new mail").unwrap();
+    ok(send(root, Some("dev")));
+    let mail = inbox();
+    assert!(mail.contains("new mail"));
+    assert!(!mail.contains("old mail"));
+
+    for (name, sees_old_mail) in [("worker", true), ("reviewer", false)] {
+        let history = ok(
+            command(root, &["history", "--team", "dev", "--agent", name])
+                .output()
+                .unwrap(),
+        );
+        assert!(history.contains("new mail"));
+        assert_eq!(history.contains("old mail"), sees_old_mail);
+    }
+    let connect = command(
+        root,
+        &["--server", "http://127.0.0.1:9", "team", "connect", "dev"],
+    )
+    .output()
+    .unwrap();
+    assert!(!connect.status.success());
+    assert!(
+        String::from_utf8_lossy(&connect.stderr).contains("cannot share a team with reused names")
+    );
+}
+
+#[test]
 fn send_resolves_the_session_and_refuses_ambiguous_or_foreign_bindings() {
     let t = tempfile::tempdir().unwrap();
     let r = t.path();

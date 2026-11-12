@@ -56,6 +56,7 @@ pub async fn run(root: &Path, team: &str, server: &str, attach_existing: bool) -
             .map_err(|e| e.to_string())?
         {
             let config = registry::config(root, team)?;
+            registry::ensure_syncable_names(&dir, &config)?;
             let pending = config["import_pending"] == true || config["attachment_pending"] == true;
             if !pending && (!attach_existing || !config["remote_binding"].is_null()) {
                 return Err("team already exists locally; use join to register an identity".into());

@@ -27,6 +27,7 @@
       SELECT ord,json_extract(event,'$.type') AS type,
              json_extract(event,'$.member_id') AS member_id,
              json_extract(event,'$.name') AS name,
+             json_extract(event,'$.reuse_name') AS reuse_name,
              json_extract(event,'$.from') AS old_name,
              json_extract(event,'$.to') AS new_name
         FROM records
@@ -40,7 +41,11 @@
            AND (json_extract(f.owners,'$.' || json_quote(n.name)) IS NULL
              OR (json_extract(f.owners,'$.' || json_quote(n.name))=n.member_id
                AND json_extract(f.active,'$.' || json_quote(n.member_id))=0
-               AND json_extract(f.current_names,'$.' || json_quote(n.member_id))=n.name))
+               AND json_extract(f.current_names,'$.' || json_quote(n.member_id))=n.name)
+             OR (n.reuse_name=1
+               AND json_extract(f.current_names,'$.' || json_quote(n.member_id)) IS NULL
+               AND json_extract(f.active,'$.' || json_quote(json_extract(f.owners,'$.' || json_quote(n.name))))=0
+               AND json_extract(f.current_names,'$.' || json_quote(json_extract(f.owners,'$.' || json_quote(n.name))))=n.name))
             THEN json_set(f.owners,'$.' || json_quote(n.name),n.member_id)
           WHEN n.type='member_renamed'
            AND json_extract(f.active,'$.' || json_quote(n.member_id))=1
@@ -55,7 +60,11 @@
            AND (json_extract(f.owners,'$.' || json_quote(n.name)) IS NULL
              OR (json_extract(f.owners,'$.' || json_quote(n.name))=n.member_id
                AND json_extract(f.active,'$.' || json_quote(n.member_id))=0
-               AND json_extract(f.current_names,'$.' || json_quote(n.member_id))=n.name))
+               AND json_extract(f.current_names,'$.' || json_quote(n.member_id))=n.name)
+             OR (n.reuse_name=1
+               AND json_extract(f.current_names,'$.' || json_quote(n.member_id)) IS NULL
+               AND json_extract(f.active,'$.' || json_quote(json_extract(f.owners,'$.' || json_quote(n.name))))=0
+               AND json_extract(f.current_names,'$.' || json_quote(json_extract(f.owners,'$.' || json_quote(n.name))))=n.name))
             THEN json_set(f.current_names,'$.' || json_quote(n.member_id),n.name)
           WHEN n.type='member_renamed'
            AND json_extract(f.active,'$.' || json_quote(n.member_id))=1
@@ -70,7 +79,11 @@
            AND (json_extract(f.owners,'$.' || json_quote(n.name)) IS NULL
              OR (json_extract(f.owners,'$.' || json_quote(n.name))=n.member_id
                AND json_extract(f.active,'$.' || json_quote(n.member_id))=0
-               AND json_extract(f.current_names,'$.' || json_quote(n.member_id))=n.name))
+               AND json_extract(f.current_names,'$.' || json_quote(n.member_id))=n.name)
+             OR (n.reuse_name=1
+               AND json_extract(f.current_names,'$.' || json_quote(n.member_id)) IS NULL
+               AND json_extract(f.active,'$.' || json_quote(json_extract(f.owners,'$.' || json_quote(n.name))))=0
+               AND json_extract(f.current_names,'$.' || json_quote(json_extract(f.owners,'$.' || json_quote(n.name))))=n.name))
             THEN json_set(f.active,'$.' || json_quote(n.member_id),1)
           WHEN n.type='member_left'
            AND json_extract(f.active,'$.' || json_quote(n.member_id))=1
@@ -113,8 +126,13 @@
         FROM final f,json_each(f.current_names) c
        WHERE json_extract(f.active,'$.' || json_quote(c.key))=0
          AND json_extract(f.owners,'$.' || json_quote(c.value))=c.key
+    ),
+    reused(value) AS (
+      SELECT COALESCE(json_group_object(name,1),json_object())
+        FROM (SELECT DISTINCT name FROM normalized WHERE type='member_joined' AND reuse_name=1)
     )
     SELECT json_set(?2,
                     '$.agents',json(agents.value),
-                    '$.retired_members',json(retired.value))
-      FROM agents,retired;
+                    '$.retired_members',json(retired.value),
+                    '$.reused_names',json(reused.value))
+      FROM agents,retired,reused;

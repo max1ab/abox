@@ -16,8 +16,11 @@ async fn connect(root: &Path, team: &str, server: &str, named: bool) -> Result<(
     crate::store::team_name(team)?;
     let endpoint = sync::endpoint(server)?;
     let original = {
-        let _lock = TeamLock::acquire(&root.join("teams").join(team))?;
-        registry::config(root, team)?
+        let dir = root.join("teams").join(team);
+        let _lock = TeamLock::acquire(&dir)?;
+        let config = registry::config(root, team)?;
+        registry::ensure_syncable_names(&dir, &config)?;
+        config
     };
     if original["import_pending"] == true || original["attachment_pending"] == true {
         return Err("finish team import before connecting".into());

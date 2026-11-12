@@ -115,6 +115,7 @@ fn groups_for(
                         team,
                         name,
                         crate::presence::member_id(&store.config["agents"][name]),
+                        mailbox::requires_address(&store.config, name),
                     )?,
                     None => 0,
                 };

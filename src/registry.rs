@@ -216,26 +216,51 @@ pub fn join(
     if cfg["agents"].get(name).is_some_and(|v| !v.is_null()) {
         return Err("name already belongs to another registration; choose a different name".into());
     }
-    // Names remain attached to their original identity even after rename/leave.
-    if journal
-        .iter()
-        .any(|r| r["name"] == name || r["from"] == name || r["to"] == name)
-        || cfg["renamed"]
-            .as_array()
-            .is_some_and(|rs| rs.iter().any(|r| r["from"] == name))
+    let reuse_name =
+        cfg["remote_binding"].is_null() && cfg["retired_members"][name]["member_id"].is_string();
+    if !reuse_name
+        && (journal
+            .iter()
+            .any(|r| r["name"] == name || r["from"] == name || r["to"] == name)
+            || cfg["renamed"]
+                .as_array()
+                .is_some_and(|rs| rs.iter().any(|r| r["from"] == name)))
     {
         return Err(
             "name belongs to a retired or renamed identity; choose a different name".into(),
         );
     }
     let member = uuid::Uuid::now_v7().to_string();
-    journal.push(json!({"type":"member_joined","id":uuid::Uuid::now_v7().to_string(),"member_id":member,"name":name,"at":now()?}));
+    let mut event = json!({"type":"member_joined","id":uuid::Uuid::now_v7().to_string(),"member_id":member,"name":name,"at":now()?});
+    if reuse_name {
+        event["reuse_name"] = json!(true);
+    }
+    journal.push(event);
     cfg["agents"][name] =
         json!({"member_id":member,"registrations":[{"type":kind.as_str(),"project":path}]});
     cfg = project(&journal, &cfg)?;
+    if cfg["agents"][name]["member_id"] != member {
+        return Err("could not register the new identity".into());
+    }
     crate::store::initialize(root, team, &cfg)?;
     save(&dir, &journal, &cfg)?;
     println!("Registered {team}/{name}.");
     crate::sync::runtime::notify(root, team);
+    Ok(())
+}
+
+pub(crate) fn ensure_syncable_names(dir: &Path, config: &Value) -> Result<()> {
+    if dir
+        .join("roster.jsonl")
+        .try_exists()
+        .map_err(|e| e.to_string())?
+        && records(dir, config)?
+            .iter()
+            .any(|record| record["reuse_name"] == true)
+    {
+        return Err(
+            "cannot share a team with reused names using the current relay protocol".into(),
+        );
+    }
     Ok(())
 }
