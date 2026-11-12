@@ -109,7 +109,7 @@
                  WHERE e.member_id=c.key LIMIT 1),
                (SELECT json_set(e.value,'$.member_id',c.key)
                   FROM existing e
-                 WHERE e.name=c.value LIMIT 1),
+                 WHERE e.name=c.value AND e.member_id IS NULL LIMIT 1),
                json_object('member_id',c.key,'registrations',json_array())
              ) AS agent
         FROM final f,json_each(f.current_names) c

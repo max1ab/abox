@@ -28,7 +28,10 @@ pub(super) fn validate(value: &Value) -> Result<()> {
         _ => return Err("unsupported roster mutation or key rotation; cursor preserved".into()),
     };
     let object = value.as_object().ok_or("invalid roster mutation")?;
-    if object.len() != names.len() || names.iter().any(|k| !object.contains_key(*k)) {
+    let has_reuse = kind == "member_joined" && value["reuse_name"] == true;
+    if object.len() != names.len() + usize::from(has_reuse)
+        || names.iter().any(|k| !object.contains_key(*k))
+    {
         return Err("unexpected roster fields".into());
     }
     if !value["mutation_id"].as_str().is_some_and(|v| uuid(v, 7))
@@ -65,6 +68,9 @@ fn projection(record: &Value) -> Result<Value> {
     } else {
         value["name"] = record["name"].clone();
     }
+    if record["type"] == "member_joined" && record["reuse_name"] == true {
+        value["reuse_name"] = json!(true);
+    }
     validate(&value)?;
     Ok(value)
 }
@@ -75,6 +81,9 @@ fn mutation(value: &Value) -> Value {
         record["to"] = value["to"].clone();
     } else {
         record["name"] = value["name"].clone();
+    }
+    if value["reuse_name"] == true {
+        record["reuse_name"] = json!(true);
     }
     record
 }
@@ -310,6 +319,12 @@ impl Roster {
         self.sync_record(&projection["mutation_id"], seq, &candidate.id);
         Ok(())
     }
+    pub(super) fn knows_mutation(&self, value: &Value) -> bool {
+        self.records
+            .iter()
+            .any(|r| is_mutation(r) && r["id"] == value["mutation_id"])
+    }
+
     pub(super) fn apply(&mut self, value: &Value, seq: &str, wire: &str) -> Result<()> {
         validate(value)?;
         if let Some(prior) = self

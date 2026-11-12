@@ -134,15 +134,18 @@ impl Context {
             .store
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate))?;
+        crate::mailbox::ensure_addresses(&tx)?;
         sql(tx.execute("UPDATE sync_read_members SET active=0 WHERE local_team=?1 AND server_instance_id=?2 AND remote_team_id=?3 AND protocol_version=1 AND driver_generation=?4",params![self.team,self.server,self.remote,self.generation]))?;
         let mut updates = Vec::new();
         let mut budget = 1000usize;
         for (id, name) in members {
             // A name changed independently of the server snapshot is not enough
-            // evidence to move another identity's reads. Match both name and ID.
-            let matched = local
-                .get(name)
-                .is_some_and(|member| member["member_id"] == *id);
+            // evidence to move another identity's reads. The legacy relay
+            // roster cannot track address reuse, so skip reused names here.
+            let matched = !crate::mailbox::requires_address(&config, name)
+                && local
+                    .get(name)
+                    .is_some_and(|member| member["member_id"] == *id);
             sql(tx.execute("INSERT INTO sync_read_members(local_team,server_instance_id,remote_team_id,protocol_version,driver_generation,member_id,agent,remote_agent,active,name_mismatch,remote_server_seq,min_available_seq)
               VALUES (?1,?2,?3,1,?4,?5,?6,?6,1,?7,?8,?8)
               ON CONFLICT(local_team,server_instance_id,remote_team_id,protocol_version,driver_generation,member_id) DO UPDATE SET remote_agent=excluded.remote_agent,active=1,name_mismatch=CASE WHEN sync_read_members.agent=excluded.agent THEN excluded.name_mismatch ELSE 1 END,min_available_seq=CAST(MAX(CAST(sync_read_members.min_available_seq AS INTEGER),?8) AS TEXT),remote_server_seq=CAST(MAX(CAST(sync_read_members.remote_server_seq AS INTEGER),?8) AS TEXT)",params![self.team,self.server,self.remote,self.generation,id,name,if matched {0}else{1},floor.to_string()]))?;
@@ -151,10 +154,11 @@ impl Context {
                 continue;
             }
             let first_unread:Option<i64>=sql(tx.query_row("SELECT MIN(CAST(m.server_seq AS INTEGER)) FROM sync_messages m JOIN events e ON e.seq=m.local_position
+              LEFT JOIN mail_addresses a ON a.event_seq=e.seq
               WHERE m.local_team=?1 AND m.server_instance_id=?2 AND m.remote_team_id=?3 AND m.protocol_version=1 AND m.driver_generation=?4
-              AND m.server_seq IS NOT NULL AND e.to_agent=?5 AND CAST(m.server_seq AS INTEGER)>?6
+              AND m.server_seq IS NOT NULL AND e.to_agent=?5 AND (a.to_member_id IS NULL OR a.to_member_id=?7) AND CAST(m.server_seq AS INTEGER)>?6
               AND e.seq>COALESCE((SELECT local_position FROM read_cursors WHERE team=?1 AND agent=?5),0)
-              AND NOT EXISTS(SELECT 1 FROM events r WHERE r.type='message_read' AND r.team=?1 AND r.agent=?5 AND r.msg_id=e.id)",params![self.team,self.server,self.remote,self.generation,name,floor],|r|r.get(0)))?;
+              AND NOT EXISTS(SELECT 1 FROM events r WHERE r.type='message_read' AND r.team=?1 AND r.agent=?5 AND r.msg_id=e.id)",params![self.team,self.server,self.remote,self.generation,name,floor,id],|r|r.get(0)))?;
             let first_unresolved:Option<i64>=sql(tx.query_row("SELECT MIN(CAST(server_seq AS INTEGER)) FROM sync_quarantine WHERE local_team=?1 AND server_instance_id=?2 AND remote_team_id=?3 AND protocol_version=1 AND driver_generation=?4 AND CAST(server_seq AS INTEGER)>?5 AND status NOT IN ('imported','reconciled')",params![self.team,self.server,self.remote,self.generation,floor],|r|r.get(0)))?;
             let mut frontier = cursor.max(floor);
             for gap in [first_unread, first_unresolved].into_iter().flatten() {
@@ -171,7 +175,8 @@ impl Context {
             }
             let exact = {
                 let mut statement=sql(tx.prepare("SELECT DISTINCT m.wire_id FROM sync_messages m JOIN events e ON e.seq=m.local_position JOIN sync_read_members rm ON rm.local_team=m.local_team AND rm.server_instance_id=m.server_instance_id AND rm.remote_team_id=m.remote_team_id AND rm.protocol_version=m.protocol_version AND rm.driver_generation=m.driver_generation AND rm.member_id=?5
-                  WHERE m.local_team=?1 AND m.server_instance_id=?2 AND m.remote_team_id=?3 AND m.protocol_version=1 AND m.driver_generation=?4 AND m.server_seq IS NOT NULL AND e.to_agent=?6
+                  LEFT JOIN mail_addresses a ON a.event_seq=e.seq
+                  WHERE m.local_team=?1 AND m.server_instance_id=?2 AND m.remote_team_id=?3 AND m.protocol_version=1 AND m.driver_generation=?4 AND m.server_seq IS NOT NULL AND e.to_agent=?6 AND (a.to_member_id IS NULL OR a.to_member_id=?5)
                   AND CAST(m.server_seq AS INTEGER)>MAX(?7,CAST(rm.remote_server_seq AS INTEGER))
                   AND (e.seq<=COALESCE((SELECT local_position FROM read_cursors WHERE team=?1 AND agent=?6),0)
                     OR EXISTS(SELECT 1 FROM events r WHERE r.type='message_read' AND r.team=?1 AND r.agent=?6 AND r.msg_id=e.id))
@@ -209,6 +214,7 @@ impl Context {
             .store
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate))?;
+        crate::mailbox::ensure_addresses(&tx)?;
         for item in items {
             let id = item["member_id"].as_str().ok_or("invalid read member")?;
             if item["kind"] == "frontier" {
@@ -221,7 +227,9 @@ impl Context {
         sql(tx.execute("UPDATE sync_read_members SET remote_server_seq=CAST(MAX(CAST(remote_server_seq AS INTEGER),?5) AS TEXT),min_available_seq=CAST(MAX(CAST(min_available_seq AS INTEGER),?5) AS TEXT) WHERE local_team=?1 AND server_instance_id=?2 AND remote_team_id=?3 AND protocol_version=1 AND driver_generation=?4",params![self.team,self.server,self.remote,self.generation,floor]))?;
         let reads = {
             let mut statement=sql(tx.prepare("SELECT DISTINCT e.id,e.to_agent,e.legacy_id FROM sync_messages m JOIN events e ON e.seq=m.local_position JOIN sync_read_members rm ON rm.local_team=m.local_team AND rm.server_instance_id=m.server_instance_id AND rm.remote_team_id=m.remote_team_id AND rm.protocol_version=m.protocol_version AND rm.driver_generation=m.driver_generation AND rm.agent=e.to_agent
+              LEFT JOIN mail_addresses a ON a.event_seq=e.seq
               WHERE m.local_team=?1 AND m.server_instance_id=?2 AND m.remote_team_id=?3 AND m.protocol_version=1 AND m.driver_generation=?4 AND m.server_seq IS NOT NULL AND rm.active=1 AND rm.name_mismatch=0
+              AND (a.to_member_id IS NULL OR a.to_member_id=rm.member_id)
               AND (CAST(m.server_seq AS INTEGER)<=CAST(rm.remote_server_seq AS INTEGER) OR EXISTS(SELECT 1 FROM sync_read_remote_exact x WHERE x.local_team=m.local_team AND x.server_instance_id=m.server_instance_id AND x.remote_team_id=m.remote_team_id AND x.protocol_version=m.protocol_version AND x.driver_generation=m.driver_generation AND x.member_id=rm.member_id AND x.wire_id=m.wire_id))
               AND NOT EXISTS(SELECT 1 FROM sync_quarantine q WHERE q.server_instance_id=m.server_instance_id AND q.remote_team_id=m.remote_team_id AND q.protocol_version=m.protocol_version AND q.wire_id=m.wire_id AND q.status NOT IN ('imported','reconciled'))
               AND NOT EXISTS(SELECT 1 FROM events r WHERE r.type='message_read' AND r.team=?1 AND r.agent=e.to_agent AND r.msg_id=e.id)"))?;

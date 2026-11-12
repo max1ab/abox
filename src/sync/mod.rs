@@ -36,6 +36,10 @@ struct Projection {
     created_at: String,
     from_agent: String,
     to_agent: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    from_member_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    to_member_id: Option<String>,
 }
 #[derive(Serialize)]
 pub struct Outcome {
@@ -594,6 +598,14 @@ fn projection(envelope: &Envelope) -> Result<Projection> {
         || p.body.contains('\0')
         || !valid_name(&p.from_agent)
         || !valid_name(&p.to_agent)
+        || !matches!(
+            (&p.from_member_id, &p.to_member_id),
+            (None, None) | (Some(_), Some(_))
+        )
+        || [&p.from_member_id, &p.to_member_id]
+            .into_iter()
+            .flatten()
+            .any(|id| !uuid(id, 7))
         || canonical_time(&p.created_at)? != p.created_at
     {
         return Err("invalid message projection content".into());
@@ -631,8 +643,10 @@ impl Context {
             SELECT m.id-1000000000,'message_sent',CAST(m.id AS TEXT),m.team,m.from_agent,m.to_agent,m.body,m.created_at,m.id FROM messages m
             WHERE m.team=?1 AND (?2 IS NULL OR m.id>?2) AND NOT EXISTS(SELECT 1 FROM events e WHERE e.legacy_id=m.id)
             AND NOT EXISTS(SELECT 1 FROM events e WHERE e.seq=m.id-1000000000)",params![self.team,message_boundary]))?;
+        crate::mailbox::ensure_addresses(&tx)?;
         let rows = {
-            let mut statement=sql(tx.prepare("SELECT e.seq,e.id,e.body,e.at,e.from_agent,e.to_agent FROM events e
+            let mut statement=sql(tx.prepare("SELECT e.seq,e.id,e.body,e.at,e.from_agent,e.to_agent,a.from_member_id,a.to_member_id FROM events e
+              LEFT JOIN mail_addresses a ON a.event_seq=e.seq
               LEFT JOIN sync_messages m ON m.local_team=?1 AND m.server_instance_id=?2 AND m.remote_team_id=?3
               AND m.protocol_version=1 AND m.driver_generation=?4 AND m.local_position=e.seq
               WHERE e.team=?1 AND e.type='message_sent' AND m.server_seq IS NULL
@@ -656,6 +670,8 @@ impl Context {
                         r.get::<_, String>(3)?,
                         r.get::<_, String>(4)?,
                         r.get::<_, String>(5)?,
+                        r.get::<_, Option<String>>(6)?,
+                        r.get::<_, Option<String>>(7)?,
                     ))
                 },
             ))?
@@ -663,7 +679,7 @@ impl Context {
             .map_err(|e| e.to_string())?
         };
         let mut candidates = Vec::new();
-        for (position, local_id, body, at, from, to) in rows {
+        for (position, local_id, body, at, from, to, from_member_id, to_member_id) in rows {
             let reserved=sql(tx.query_row("SELECT wire_id,envelope_v,cipher,key_id,blob FROM sync_messages WHERE local_team=?1 AND server_instance_id=?2 AND remote_team_id=?3 AND protocol_version=1 AND driver_generation=?4 AND local_position=?5",
               params![self.team,self.server,self.remote,self.generation,position],|r|Ok(Candidate {id:r.get(0)?,envelope:Envelope {v:r.get(1)?,cipher:r.get(2)?,key_id:r.get(3)?,blob:r.get(4)?}})).optional())?;
             let candidate = if let Some(candidate) = reserved {
@@ -674,6 +690,8 @@ impl Context {
                     created_at: canonical_time(&at)?,
                     from_agent: from,
                     to_agent: to,
+                    from_member_id,
+                    to_member_id,
                 };
                 let candidate = Candidate {
                     id: uuid::Uuid::new_v4().to_string(),
@@ -747,7 +765,7 @@ impl Context {
             }
             let value = plain(&message.envelope)?;
             if value.get("kind").is_some() {
-                if self.history_boundary.is_some() {
+                if self.history_boundary.is_some() && !roster.knows_mutation(&value) {
                     for name in ["name", "to"]
                         .into_iter()
                         .filter_map(|key| value[key].as_str())
@@ -807,6 +825,15 @@ impl Context {
             let legacy_id = tx.last_insert_rowid();
             sql(tx.execute("INSERT INTO events(type,id,team,from_agent,to_agent,body,at,legacy_id) VALUES ('message_sent',?1,?2,?3,?4,?5,?6,?7)",params![local_id,self.team,p.from_agent,p.to_agent,p.body,p.created_at,legacy_id]))?;
             let position = tx.last_insert_rowid();
+            if p.to_member_id.is_some() {
+                crate::mailbox::ensure_addresses(&tx)?;
+                crate::mailbox::record_addresses(
+                    &tx,
+                    position,
+                    p.from_member_id.as_deref(),
+                    p.to_member_id.as_deref(),
+                )?;
+            }
             sql(tx.execute("INSERT INTO sync_messages(local_team,server_instance_id,remote_team_id,protocol_version,driver_generation,local_position,local_id,wire_id,envelope_v,cipher,key_id,blob,server_seq,direction)
               VALUES (?1,?2,?3,1,?4,?5,?6,?7,?8,?9,?10,?11,?12,'pull')",params![self.team,self.server,self.remote,self.generation,position,local_id,message.id,message.envelope.v,message.envelope.cipher,message.envelope.key_id,message.envelope.blob,message.server_seq]))?;
             sql(tx.execute("INSERT OR IGNORE INTO sync_read_aliases(local_team,server_instance_id,remote_team_id,protocol_version,driver_generation,agent,local_id,wire_id,server_seq)

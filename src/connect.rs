@@ -19,7 +19,9 @@ async fn connect(root: &Path, team: &str, server: &str, named: bool) -> Result<(
         let dir = root.join("teams").join(team);
         let _lock = TeamLock::acquire(&dir)?;
         let config = registry::config(root, team)?;
-        registry::ensure_syncable_names(&dir, &config)?;
+        if config["remote_binding"].is_null() {
+            registry::ensure_syncable_names(&dir, &config)?;
+        }
         config
     };
     if original["import_pending"] == true || original["attachment_pending"] == true {

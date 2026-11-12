@@ -40,6 +40,8 @@ pub(super) fn incoming() -> Candidate {
                     created_at: "2026-11-03T00:00:00.000000Z".into(),
                     from_agent: "sender".into(),
                     to_agent: "receiver".into(),
+                    from_member_id: None,
+                    to_member_id: None,
                 })
                 .unwrap(),
             ),
@@ -312,4 +314,102 @@ fn roster_reservations_survive_reopen_and_lost_ack() {
     assert_eq!(remaining.len(), 1);
     assert_eq!(remaining[0].id, retry[1].id);
     assert_eq!(ctx.cursor().unwrap(), "0");
+}
+
+#[test]
+fn reused_remote_address_only_receives_mail_for_the_new_member_id() {
+    let sender = fixture();
+    let receiver = fixture();
+    let sender_id = "019a4000-0000-7000-8000-000000000003";
+    let previous_id = "019a4000-0000-7000-8000-000000000004";
+    let name = "receiver";
+    let project = receiver.path();
+    let kind = crate::cli::AgentType::Codex;
+    for root in [sender.path(), receiver.path()] {
+        let mut config = crate::registry::config(root, "dev").unwrap();
+        config["team_id"] = config["remote_binding"]["remote_team_id"].clone();
+        fs::write(root.join("teams/dev/config.json"), config.to_string()).unwrap();
+    }
+    let mut sending = Context::open(sender.path(), "dev").unwrap();
+    let enqueue = |db: &Connection, member: &str| {
+        db.execute(
+            "INSERT INTO events(type,id,team,from_agent,to_agent,body,at)
+             VALUES ('message_sent',?1,'dev','sender','receiver',?2,'2026-11-03T00:00:00Z')",
+            params![uuid::Uuid::now_v7().to_string(), member],
+        )
+        .unwrap();
+        crate::mailbox::ensure_addresses(db).unwrap();
+        crate::mailbox::record_addresses(db, db.last_insert_rowid(), Some(sender_id), Some(member))
+            .unwrap();
+    };
+    enqueue(&sending.store.db, previous_id);
+    let delayed = sending.reserve(1_048_576).unwrap().remove(0);
+    assert_eq!(
+        projection(&delayed.envelope)
+            .unwrap()
+            .to_member_id
+            .as_deref(),
+        Some(previous_id)
+    );
+
+    let mut receiving = Context::open(receiver.path(), "dev").unwrap();
+    let initial = receiving.reserve_roster(1_048_576).unwrap();
+    for (index, candidate) in initial.iter().enumerate() {
+        let before = index.to_string();
+        receiving
+            .apply(&before, &before, &page(candidate, &(index + 1).to_string()))
+            .unwrap();
+    }
+    let dir = receiver.path().join("teams/dev");
+    let mut journal = fs::OpenOptions::new()
+        .append(true)
+        .open(dir.join("roster.jsonl"))
+        .unwrap();
+    use std::io::Write;
+    writeln!(journal, "{}", json!({"type":"member_left","id":uuid::Uuid::now_v7().to_string(),"member_id":previous_id,"name":name,"at":"2026-11-03T00:00:00Z"})).unwrap();
+    drop(journal);
+    crate::registry::join(receiver.path(), "dev", name, kind, project, false).unwrap();
+    let config = crate::registry::config(receiver.path(), "dev").unwrap();
+    let new_id = config["agents"][name]["member_id"].as_str().unwrap();
+    assert_ne!(new_id, previous_id);
+
+    let changes = receiving.reserve_roster(1_048_576).unwrap();
+    assert_eq!(changes.len(), 2);
+    assert_eq!(plain(&changes[1].envelope).unwrap()["reuse_name"], true);
+    for (index, candidate) in initial.iter().chain(&changes).enumerate() {
+        let before = index.to_string();
+        let after = (index + 1).to_string();
+        sending
+            .apply(&before, &before, &page(candidate, &after))
+            .unwrap();
+        if index >= initial.len() {
+            receiving
+                .apply(&before, &before, &page(candidate, &after))
+                .unwrap();
+        }
+    }
+    let sender_config = crate::registry::config(sender.path(), "dev").unwrap();
+    assert_eq!(sender_config["agents"][name]["member_id"], new_id);
+    assert!(!crate::presence::is_local(&sender_config["agents"][name]));
+    assert_eq!(
+        sending.reserve(1_048_576).unwrap()[0].envelope,
+        delayed.envelope
+    );
+
+    receiving.apply("4", "4", &page(&delayed, "5")).unwrap();
+    receiving.apply("5", "5", &page(&incoming(), "6")).unwrap();
+    assert_eq!(
+        crate::mailbox::unread_count(&receiving.store.db, "dev", name, Some(new_id), true).unwrap(),
+        0
+    );
+    enqueue(&sending.store.db, new_id);
+    let new_mail = sending.reserve(1_048_576).unwrap().remove(1);
+    receiving.apply("6", "6", &page(&new_mail, "7")).unwrap();
+    assert_eq!(
+        crate::mailbox::unread_count(&receiving.store.db, "dev", name, Some(new_id), true).unwrap(),
+        1
+    );
+    let history = crate::mailbox::history(receiver.path(), "dev", Some(name), 20).unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].body, new_id);
 }

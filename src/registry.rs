@@ -216,8 +216,7 @@ pub fn join(
     if cfg["agents"].get(name).is_some_and(|v| !v.is_null()) {
         return Err("name already belongs to another registration; choose a different name".into());
     }
-    let reuse_name =
-        cfg["remote_binding"].is_null() && cfg["retired_members"][name]["member_id"].is_string();
+    let reuse_name = cfg["retired_members"][name]["member_id"].is_string();
     if !reuse_name
         && (journal
             .iter()
