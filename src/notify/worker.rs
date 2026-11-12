@@ -110,7 +110,12 @@ fn groups_for(
             let read = || -> Result<(Target, i64)> {
                 let target = bound_target(&config, team, name, &path)?;
                 let count = match crate::store::open_existing(root, team)? {
-                    Some(store) => mailbox::unread_count(&store.db, team, name)?,
+                    Some(store) => mailbox::unread_count(
+                        &store.db,
+                        team,
+                        name,
+                        crate::presence::member_id(&store.config["agents"][name]),
+                    )?,
                     None => 0,
                 };
                 Ok((target, count))

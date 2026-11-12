@@ -154,19 +154,21 @@ pub fn history(
         .map_err(|e| e.to_string())
 }
 
-pub(crate) fn unread_count(db: &Connection, team: &str, agent: &str) -> Result<i64, String> {
-    db.query_row("SELECT (SELECT count(*) FROM events e WHERE e.type='message_sent' AND e.team=?1 AND e.to_agent=?2
-      AND e.seq>COALESCE((SELECT local_position FROM read_cursors WHERE team=?1 AND agent=?2),0)
-      AND NOT EXISTS(SELECT 1 FROM events r WHERE r.type='message_read' AND r.team=?1 AND r.agent=?2 AND r.msg_id=e.id))
-      + (SELECT count(*) FROM messages m WHERE m.team=?1 AND m.to_agent=?2 AND m.read_at IS NULL
-      AND NOT EXISTS(SELECT 1 FROM events r WHERE r.type='message_read' AND r.team=?1 AND r.agent=?2 AND r.msg_id=CAST(m.id AS TEXT))
-      AND NOT EXISTS(SELECT 1 FROM events e WHERE e.legacy_id=m.id AND e.seq>0))",params![team,agent],|r|r.get(0)).map_err(|e|e.to_string())
-}
-
-pub fn unread(db: &Connection, team: &str, agent: &str) -> Result<Vec<Message>, String> {
-    let mut statement = db.prepare("SELECT id,team,from_agent,to_agent,body,at FROM (
-        SELECT e.id,e.team,e.from_agent,e.to_agent,e.body,e.at,1 AS src,e.seq AS ord FROM events e
+fn unread_source(db: &Connection) -> Result<String, String> {
+    let has_addresses: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='mail_addresses')",
+        [], |row| row.get(0),
+    ).map_err(|e| e.to_string())?;
+    let addresses = if has_addresses {
+        "mail_addresses"
+    } else {
+        "(SELECT NULL AS event_seq,NULL AS to_member_id)"
+    };
+    Ok(format!("
+        SELECT e.id,e.team,e.from_agent,e.to_agent,e.body,e.at,1 AS src,e.seq AS ord
+        FROM events e LEFT JOIN {addresses} a ON a.event_seq=e.seq
         WHERE e.type='message_sent' AND e.team=?1 AND e.to_agent=?2
+          AND (a.to_member_id IS NULL OR a.to_member_id=?3)
           AND e.seq>COALESCE((SELECT local_position FROM read_cursors WHERE team=?1 AND agent=?2),0)
           AND NOT EXISTS(SELECT 1 FROM events r WHERE r.type='message_read' AND r.team=?1 AND r.agent=?2 AND r.msg_id=e.id)
         UNION ALL
@@ -174,9 +176,38 @@ pub fn unread(db: &Connection, team: &str, agent: &str) -> Result<Vec<Message>, 
         WHERE m.team=?1 AND m.to_agent=?2 AND m.read_at IS NULL
           AND NOT EXISTS(SELECT 1 FROM events r WHERE r.type='message_read' AND r.team=?1 AND r.agent=?2 AND r.msg_id=CAST(m.id AS TEXT))
           AND NOT EXISTS(SELECT 1 FROM events e WHERE e.legacy_id=m.id AND e.seq>0)
-    ) ORDER BY at,src,ord").map_err(|e| e.to_string())?;
+    "))
+}
+
+pub(crate) fn unread_count(
+    db: &Connection,
+    team: &str,
+    agent: &str,
+    member_id: Option<&str>,
+) -> Result<i64, String> {
+    let source = unread_source(db)?;
+    db.query_row(
+        &format!("SELECT count(*) FROM ({source})"),
+        params![team, agent, member_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn unread(
+    db: &Connection,
+    team: &str,
+    agent: &str,
+    member_id: Option<&str>,
+) -> Result<Vec<Message>, String> {
+    let source = unread_source(db)?;
+    let mut statement = db
+        .prepare(&format!(
+            "SELECT id,team,from_agent,to_agent,body,at FROM ({source}) ORDER BY at,src,ord"
+        ))
+        .map_err(|e| e.to_string())?;
     statement
-        .query_map(params![team, agent], row)
+        .query_map(params![team, agent, member_id], row)
         .map_err(|e| e.to_string())?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|e| e.to_string())
@@ -193,7 +224,8 @@ pub fn inbox(root: &Path, team: &str, agent: &str) -> Result<(), String> {
     }
     // Snapshot only what is actually displayed. Messages arriving during output
     // must remain unread; output failure must never consume the snapshot.
-    let messages = unread(&store.db, team, agent)?;
+    let member_id = crate::presence::member_id(&store.config["agents"][agent]);
+    let messages = unread(&store.db, team, agent, member_id)?;
     let tip: i64 = store
         .db
         .query_row(
@@ -264,16 +296,44 @@ fn consume(
 mod tests {
     use super::*;
     #[test]
+    fn inbox_and_notification_count_use_the_same_recipient_id() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(include_str!("mail-schema.sql")).unwrap();
+        ensure_addresses(&db).unwrap();
+        for (id, recipient) in [("old", "previous"), ("new", "current"), ("legacy", "")] {
+            db.execute(
+                "INSERT INTO events(type,id,team,from_agent,to_agent,body,at)
+                 VALUES('message_sent',?1,'dev','a','b',?1,'2026-01-01T00:00:00Z')",
+                [id],
+            )
+            .unwrap();
+            if !recipient.is_empty() {
+                record_addresses(&db, db.last_insert_rowid(), Some("sender"), Some(recipient))
+                    .unwrap();
+            }
+        }
+        let visible = unread(&db, "dev", "b", Some("current")).unwrap();
+        assert_eq!(
+            visible
+                .iter()
+                .map(|message| message.id.as_str())
+                .collect::<Vec<_>>(),
+            ["new", "legacy"]
+        );
+        assert_eq!(unread_count(&db, "dev", "b", Some("current")).unwrap(), 2);
+    }
+
+    #[test]
     fn consuming_a_snapshot_preserves_mail_arriving_before_marking() {
         let mut db = Connection::open_in_memory().unwrap();
         db.execute_batch(include_str!("mail-schema.sql")).unwrap();
         db.execute("INSERT INTO events(type,id,team,from_agent,to_agent,body,at) VALUES('message_sent','first','dev','a','b','first','2026-01-01T00:00:00Z')",[]).unwrap();
-        let displayed = unread(&db, "dev", "b").unwrap();
+        let displayed = unread(&db, "dev", "b", None).unwrap();
         db.execute("INSERT INTO events(type,id,team,from_agent,to_agent,body,at) VALUES('message_sent','second','dev','a','b','second','2026-01-01T00:00:00Z')",[]).unwrap();
         // Even a high-water observed after the arrival must not consume it.
         consume(&mut db, "dev", "b", &displayed, 2).unwrap();
         assert_eq!(
-            unread(&db, "dev", "b")
+            unread(&db, "dev", "b", None)
                 .unwrap()
                 .iter()
                 .map(|m| m.id.as_str())
@@ -300,10 +360,10 @@ mod tests {
             [],
         )
         .unwrap();
-        let displayed = unread(&db, "dev", "b").unwrap();
+        let displayed = unread(&db, "dev", "b", None).unwrap();
         db.execute_batch("CREATE TRIGGER reject_cursor BEFORE INSERT ON read_cursors BEGIN SELECT RAISE(ABORT,'injected'); END").unwrap();
         assert!(consume(&mut db, "dev", "b", &displayed, 0).is_err());
-        assert_eq!(unread(&db, "dev", "b").unwrap().len(), 1);
+        assert_eq!(unread(&db, "dev", "b", None).unwrap().len(), 1);
         assert_eq!(
             db.query_row("SELECT count(*) FROM events", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
